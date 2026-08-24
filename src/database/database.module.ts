@@ -5,9 +5,9 @@ import * as dns from 'dns';
 import validationSchema from '../config/validation';
 
 // Set DNS servers for development environment
-// if (process.env.NODE_ENV === 'development') {
-dns.setServers(['8.8.8.8', '1.1.1.1']);
-// }
+if (process.env.NODE_ENV === 'development') {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+}
 
 // console.log('MONGO', process.env.MONGO_URI);
 

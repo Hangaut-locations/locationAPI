@@ -6,37 +6,37 @@ import { Document } from 'mongoose';
 })
 export class User extends Document {
   @Prop({ required: true, unique: true })
-  email: string;
+  email!: string;
 
   @Prop({ required: true })
-  firstName: string;
+  firstName!: string;
 
   @Prop({ required: true })
-  lastName: string;
+  lastName!: string;
 
   @Prop({ required: true })
-  password: string;
+  password!: string;
 
   @Prop()
   address?: string;
 
   @Prop({ required: true })
-  country: string;
+  country!: string;
 
   @Prop({ required: true })
-  state: string;
+  state!: string;
 
   @Prop({ required: true })
-  city: string;
+  city!: string;
 
   @Prop({ required: true })
-  bio: string;
+  bio!: string;
 
   @Prop({ default: Date.now })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Prop({ default: Date.now })
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

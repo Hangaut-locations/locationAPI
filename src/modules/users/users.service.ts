@@ -26,11 +26,19 @@ export class UsersService {
 
   async update(id: string, userData: Partial<User>): Promise<User | null> {
     return this.userModel
-      .findByIdAndUpdate(id, userData, { new: true })
+      .findByIdAndUpdate(id, userData, { new: true, runValidators: true })
       .exec();
   }
 
   async delete(id: string): Promise<User | null> {
     return this.userModel.findByIdAndDelete(id).exec();
+  }
+
+  toPublicUser(user: User): Partial<User> {
+    const publicUser = user.toObject() as Partial<User> & {
+      password?: string;
+    };
+    delete publicUser.password;
+    return publicUser;
   }
 }
