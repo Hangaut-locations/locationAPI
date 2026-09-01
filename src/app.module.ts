@@ -23,4 +23,8 @@ import { PartiesModule } from './modules/parties/parties.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule {
+  // constructor() {
+  //   console.log('DATABASE_URL:', process.env.CLOUDINARY_URL);
+  // }
+}
