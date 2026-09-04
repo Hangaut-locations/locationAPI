@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
@@ -39,12 +43,10 @@ export class PartiesService {
       throw new BadRequestException('A party can have at most 5 photos');
     }
 
-    const photoUrls = await this.uploadImages(images);
-    console.log('photoUrls', photoUrls);
-    console.log('ownderId', ownerId);
+    const photoUrls = await this.uploadImages(images, partyData.images);
     return new this.partyModel({
       ...partyData,
-      images: [...(partyData.images ?? []), ...photoUrls],
+      images: photoUrls,
       ownerId: new Types.ObjectId(ownerId),
     }).save();
   }
@@ -54,7 +56,17 @@ export class PartiesService {
   }
 
   async findById(partyId: string): Promise<Party | null> {
-    return this.partyModel.findById(partyId).exec();
+    try {
+      const party = this.partyModel.findById(partyId).exec();
+
+      if (!party) {
+        null;
+      }
+
+      return party;
+    } catch (err) {
+      throw new InternalServerErrorException('Unable to retrieve party');
+    }
   }
 
   async findAll(): Promise<Party[]> {
@@ -62,19 +74,28 @@ export class PartiesService {
   }
 
   async findAllGroupedByLocation(): Promise<PartiesByLocation[]> {
-    const parties = await this.findAll();
-    const partiesByLocation = new Map<string, Party[]>();
+    try {
+      const parties = await this.partyModel.find().sort({ location: 1 }).lean();
 
-    for (const party of parties) {
-      const locationParties = partiesByLocation.get(party.location) ?? [];
-      locationParties.push(party);
-      partiesByLocation.set(party.location, locationParties);
+      if (!parties.length) {
+        return [];
+      }
+
+      const partiesByLocation = new Map<string, Party[]>();
+
+      for (const party of parties) {
+        const locationParties = partiesByLocation.get(party.location) ?? [];
+        locationParties.push(party);
+        partiesByLocation.set(party.location, locationParties);
+      }
+
+      return Array.from(partiesByLocation, ([location, locationParties]) => ({
+        caption: `Parties in ${location}`,
+        parties: locationParties,
+      }));
+    } catch (err) {
+      throw new InternalServerErrorException('Unable to retrieve parties');
     }
-
-    return Array.from(partiesByLocation, ([location, locationParties]) => ({
-      caption: `Parties in ${location}`,
-      parties: locationParties,
-    }));
   }
 
   //   GET all party categories
@@ -97,14 +118,16 @@ export class PartiesService {
     }
 
     const updatedPartyData = { ...partyData };
-    const existingPhotoUrls = partyData.images ?? party.images;
-    if (existingPhotoUrls.length + images.length > 5) {
+    const requestedImages = partyData.images ?? party.images;
+    if (requestedImages.length + images.length > 5) {
       throw new BadRequestException('A party can have at most 5 photos');
     }
 
-    const photoUrls = await this.uploadImages(images);
-    if (photoUrls.length > 0) {
-      updatedPartyData.images = [...existingPhotoUrls, ...photoUrls];
+    if (partyData.images || images.length > 0) {
+      updatedPartyData.images = await this.uploadImages(
+        images,
+        requestedImages,
+      );
     }
     if ((updatedPartyData.images?.length ?? party.images.length) > 5) {
       throw new BadRequestException('A party can have at most 5 photos');
@@ -118,12 +141,35 @@ export class PartiesService {
       .exec();
   }
 
-  private async uploadImages(images: Express.Multer.File[]): Promise<string[]> {
-    if (images.length > 5) {
+  private async uploadImages(
+    images: Express.Multer.File[],
+    imageSources: string[] = [],
+  ): Promise<string[]> {
+    if (images.length + imageSources.length > 5) {
       throw new BadRequestException('You can upload at most 5 images');
     }
 
-    return Promise.all(images.map((image) => this.uploadImage(image.buffer)));
+    const uploadedFiles = await Promise.all(
+      images.map((image) => this.uploadImage(image.buffer)),
+    );
+    const uploadedDataUris = await Promise.all(
+      imageSources.map((source) =>
+        source.startsWith('data:')
+          ? this.uploadImage(this.dataUriToBuffer(source))
+          : Promise.resolve(source),
+      ),
+    );
+
+    return [...uploadedDataUris, ...uploadedFiles];
+  }
+
+  private dataUriToBuffer(source: string): Buffer {
+    const match = source.match(/^data:image\/[a-z0-9.+-]+;base64,(.+)$/i);
+    if (!match) {
+      throw new BadRequestException('Invalid image data URI');
+    }
+
+    return Buffer.from(match[1], 'base64');
   }
 
   private uploadImage(buffer: Buffer): Promise<string> {

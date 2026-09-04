@@ -7,6 +7,7 @@ import { DatabaseModule } from './database/database.module';
 import validationSchema from './config/validation';
 import { UsersModule } from './modules/users/users.module';
 import { PartiesModule } from './modules/parties/parties.module';
+import { FavoritesModule } from './modules/favorites/favorites.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PartiesModule } from './modules/parties/parties.module';
     AuthModule,
     UsersModule,
     PartiesModule,
+    FavoritesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

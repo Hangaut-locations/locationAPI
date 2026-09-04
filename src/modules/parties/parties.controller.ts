@@ -36,13 +36,13 @@ interface AuthenticatedRequest extends Request {
 
 @ApiTags('parties')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'))
 @Controller('parties')
 export class PartiesController {
   constructor(private partiesService: PartiesService) {}
 
   @Post()
   @ApiConsumes('multipart/form-data')
+  @UseGuards(AuthGuard('jwt'))
   @ApiBody({
     schema: {
       type: 'object',
@@ -90,6 +90,7 @@ export class PartiesController {
   }
 
   @Get('all')
+  @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'List all parties' })
   findAll() {
     return this.partiesService.findAll();
@@ -97,23 +98,48 @@ export class PartiesController {
 
   @Get('grouped-by-location')
   @ApiOperation({ summary: 'List all parties grouped by location' })
-  findAllGroupedByLocation() {
-    return this.partiesService.findAllGroupedByLocation();
+  async findAllGroupedByLocation() {
+    const data = await this.partiesService.findAllGroupedByLocation();
+
+    return {
+      success: true,
+      statusCode: 200,
+      data,
+      message: data.length
+        ? 'Parties grouped by location retrieved successfully'
+        : 'No parties found',
+    };
   }
 
   @Get('mine')
+  @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'List parties created by the authenticated user' })
   findMine(@Req() request: AuthenticatedRequest) {
     return this.partiesService.findByOwner(request.user._id);
   }
 
   @Get('categories')
+  @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'List all party categories' })
   findAllCategories() {
     return this.partiesService.findAllCategories();
   }
 
+  @Get(':id')
+  // @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Get party by id' })
+  async findById(@Param('id') partyId: string) {
+    const data = await this.partiesService.findById(partyId);
+    return {
+      success: true,
+      statusCode: data ? 200 : 404,
+      data,
+      message: data ? 'Party retrieved successfully' : 'No party found',
+    };
+  }
+
   @Patch(':id')
+  @UseGuards(AuthGuard('jwt'))
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
     FilesInterceptor('images', 5, {
@@ -151,6 +177,7 @@ export class PartiesController {
   }
 
   @Delete(':id')
+  @UseGuards(AuthGuard('jwt'))
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a party created by the authenticated user' })
   async delete(
