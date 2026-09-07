@@ -6,6 +6,39 @@ export enum ChargeType {
   HOUR = 'hour',
 }
 
+export enum StatusType {
+  DRAFT = 'draft',
+  PUBLISHED = 'published',
+}
+
+export enum PartyType {
+  HOUSE_PARTY = 'House party',
+  ROOFTOP_PARTY = 'Rooftop party',
+  YACHT_PARTY = 'Yacht party',
+  FIELD_PARTY = 'Field party',
+  MANSION_PARTY = 'Mansion Party',
+  CREATIVE_SCENE = 'Creative scene',
+  VISUAL_SCENE = 'Visual scene',
+  BIRTHDAY_PARTY = 'Birthday Party',
+  NIGHT_CLUB = 'Night Club',
+  BEACH_PARTY = 'Beach Party',
+  HALLOWEEN = 'Halloween',
+  HORRIFIC = 'Horrific',
+  BARBECUE = 'Barbecue',
+  NATURE_AND_ADVENTURE = 'Nature and Adventure',
+  PODCAST_RECORDING = 'Podcast Recording',
+  LIVE_STREAM = 'Live stream',
+  SHOWS = 'Shows',
+  GAMES = 'Games',
+  AMAZING_VIEWS = 'Amazing views',
+  FRAMES = 'Frames',
+  HOMES = 'Homes',
+  HOUSEBOAT = 'Houseboat',
+  CABIN = 'Cabin',
+  OMG = 'OMG!',
+  ISLANDS = 'Islands',
+}
+
 @Schema({ timestamps: true })
 export class Party extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
@@ -36,6 +69,9 @@ export class Party extends Document {
   @Prop({ required: true, enum: Object.values(ChargeType) })
   charge_type!: ChargeType;
 
+  @Prop({ required: true, enum: Object.values(PartyType) })
+  party_type!: PartyType;
+
   @Prop({ required: true, trim: true })
   party_rules!: string;
 
@@ -50,6 +86,9 @@ export class Party extends Document {
 
   @Prop({ required: true, min: 0 })
   bathrooms!: number;
+
+  @Prop({ enum: Object.values(StatusType), default: 'draft' })
+  status!: StatusType;
 
   @Prop({ required: true, type: Date })
   start_date!: Date;

@@ -29,6 +29,7 @@ import { memoryStorage } from 'multer';
 import { CreatePartyDto } from './dto/create-party.dto';
 import { UpdatePartyDto } from './dto/update-party.dto';
 import { PartiesService } from './parties.service';
+import { PartyType, StatusType } from './schemas/party.schema';
 
 interface AuthenticatedRequest extends Request {
   user: { _id: string };
@@ -58,6 +59,8 @@ export class PartiesController {
         party_rules: { type: 'string' },
         is_ticket_sales: { type: 'boolean' },
         price: { type: 'number' },
+        status: { enum: Object.values(StatusType), default: 'draft' },
+        party_type: { enum: Object.values(PartyType) },
         beds: { type: 'number', example: 0 },
         bathrooms: { type: 'number', example: 0 },
         category: { type: 'string' },
