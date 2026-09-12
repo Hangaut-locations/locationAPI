@@ -29,6 +29,7 @@ import { memoryStorage } from 'multer';
 import { CreatePartyDto } from './dto/create-party.dto';
 import { UpdatePartyDto } from './dto/update-party.dto';
 import { PartiesService } from './parties.service';
+import { PartyType, StatusType } from './schemas/party.schema';
 
 interface AuthenticatedRequest extends Request {
   user: { _id: string };
@@ -58,6 +59,8 @@ export class PartiesController {
         party_rules: { type: 'string' },
         is_ticket_sales: { type: 'boolean' },
         price: { type: 'number' },
+        status: { enum: Object.values(StatusType), default: 'draft' },
+        party_type: { enum: Object.values(PartyType) },
         beds: { type: 'number', example: 0 },
         bathrooms: { type: 'number', example: 0 },
         category: { type: 'string' },
@@ -92,14 +95,31 @@ export class PartiesController {
   @Get('all')
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'List all parties' })
-  findAll() {
-    return this.partiesService.findAll();
+  findAll(@Req() request: AuthenticatedRequest) {
+    return this.partiesService.findAll(request.user._id);
   }
 
   @Get('grouped-by-location')
   @ApiOperation({ summary: 'List all parties grouped by location' })
   async findAllGroupedByLocation() {
     const data = await this.partiesService.findAllGroupedByLocation();
+
+    return {
+      success: true,
+      statusCode: 200,
+      data,
+      message: data.length
+        ? 'Parties grouped by location retrieved successfully'
+        : 'No parties found',
+    };
+  }
+
+  @Get('grouped-by-location-user')
+  @ApiOperation({ summary: 'List all parties grouped by location' })
+  async findAllGroupedByLocationUser(@Req() request: AuthenticatedRequest) {
+    const data = await this.partiesService.findAllGroupedByLocation(
+      request?.user?._id,
+    );
 
     return {
       success: true,
