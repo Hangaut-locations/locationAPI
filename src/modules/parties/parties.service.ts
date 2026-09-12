@@ -9,6 +9,10 @@ import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
 import { Model, Types } from 'mongoose';
 import { CreatePartyDto } from './dto/create-party.dto';
 import { UpdatePartyDto } from './dto/update-party.dto';
+import {
+  Favorite,
+  FavoriteTargetType,
+} from '../favorites/schemas/favorite.schema';
 import { Party } from './schemas/party.schema';
 
 export interface PartiesByLocation {
@@ -16,10 +20,15 @@ export interface PartiesByLocation {
   parties: Party[];
 }
 
+export type PartyWithFavorite = Record<string, unknown> & {
+  isFavorite: boolean;
+};
+
 @Injectable()
 export class PartiesService {
   constructor(
     @InjectModel(Party.name) private partyModel: Model<Party>,
+    @InjectModel(Favorite.name) private favoriteModel: Model<Favorite>,
     private configService: ConfigService,
   ) {
     const cloudinaryUrl =
@@ -69,16 +78,61 @@ export class PartiesService {
     }
   }
 
-  async findAll(): Promise<Party[]> {
-    return this.partyModel.find().sort({ createdAt: -1 }).exec();
+  async findAll(userId: string): Promise<PartyWithFavorite[]> {
+    const parties = await this.partyModel
+      .find()
+      .populate('targetId')
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+    const partyIds = parties.map((party) => party._id);
+    const favoriteParties = await this.favoriteModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        targetType: FavoriteTargetType.PARTY,
+        targetId: { $in: partyIds },
+      })
+      .select('targetId')
+      .lean()
+      .exec();
+    const favoritePartyIds = new Set(
+      favoriteParties.map((favorite) => favorite.targetId.toString()),
+    );
+
+    return parties.map((party) => ({
+      ...party,
+      isFavorite: favoritePartyIds.has(party._id.toString()),
+    }));
   }
 
-  async findAllGroupedByLocation(): Promise<PartiesByLocation[]> {
+  async findAllGroupedByLocation(
+    userId?: string,
+  ): Promise<PartiesByLocation[]> {
     try {
       const parties = await this.partyModel.find().sort({ location: 1 }).lean();
 
       if (!parties.length) {
         return [];
+      }
+
+      if (userId) {
+        const partyIds = parties.map((party) => party._id);
+        const favoriteParties = await this.favoriteModel
+          .find({
+            userId: new Types.ObjectId(userId),
+            targetType: FavoriteTargetType.PARTY,
+            targetId: { $in: partyIds },
+          })
+          .select('targetId')
+          .lean()
+          .exec();
+        const favoritePartyIds = new Set(
+          favoriteParties.map((favorite) => favorite.targetId.toString()),
+        );
+
+        parties.forEach((party) => {
+          party.isFavorite = favoritePartyIds.has(party._id.toString());
+        });
       }
 
       const partiesByLocation = new Map<string, Party[]>();

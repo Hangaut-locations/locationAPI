@@ -47,6 +47,9 @@ export class Party extends Document {
   @Prop({ required: true, trim: true })
   title!: string;
 
+  @Prop({ required: false, default: false })
+  isFavorite!: boolean;
+
   @Prop({ required: true, trim: true })
   description!: string;
 

@@ -23,11 +23,18 @@ export class FavoritesService {
   }
 
   findAll(userId: string): Promise<Favorite[]> {
-    return this.favoriteModel.find({ userId }).sort({ createdAt: -1 }).exec();
+    return this.favoriteModel
+      .find({ userId })
+      .populate('targetId')
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
   findById(userId: string, favoriteId: string): Promise<Favorite | null> {
-    return this.favoriteModel.findOne({ _id: favoriteId, userId }).exec();
+    return this.favoriteModel
+      .findOne({ _id: favoriteId, userId })
+      .populate('targetId')
+      .exec();
   }
 
   update(
