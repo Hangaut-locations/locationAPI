@@ -72,8 +72,9 @@ export class Party extends Document {
   @Prop({ required: true, enum: Object.values(ChargeType) })
   charge_type!: ChargeType;
 
-  @Prop({ required: true, enum: Object.values(PartyType) })
-  party_type!: PartyType;
+  // @Prop({ required: true, enum: Object.values(PartyType) })
+  @Prop({ required: true })
+  party_type!: string;
 
   @Prop({ required: true, trim: true })
   party_rules!: string;

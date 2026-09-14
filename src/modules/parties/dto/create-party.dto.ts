@@ -56,6 +56,11 @@ export class CreatePartyDto {
   @IsNotEmpty()
   party_rules!: string;
 
+  @ApiProperty({ example: 'Nature and Adventure' })
+  @IsString()
+  @IsNotEmpty()
+  party_type!: string;
+
   @ApiProperty({ example: true, default: 'true' })
   @IsOptional()
   is_ticket_sales!: string;
