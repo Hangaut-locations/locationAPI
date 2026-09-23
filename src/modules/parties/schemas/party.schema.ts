@@ -50,11 +50,14 @@ export class Party extends Document {
   @Prop({ required: false, default: false })
   isFavorite!: boolean;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: false, trim: true })
   description!: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: false, trim: true })
   location!: string;
+
+  @Prop({ default: 'published', enum: Object.values(StatusType) })
+  status!: StatusType;
 
   @Prop({
     type: [String],
@@ -66,38 +69,35 @@ export class Party extends Document {
   })
   images!: string[];
 
-  @Prop({ required: true, min: 1 })
+  @Prop({ required: false, min: 1 })
   guest_capacity!: number;
 
-  @Prop({ required: true, enum: Object.values(ChargeType) })
+  @Prop({ required: false, enum: Object.values(ChargeType) })
   charge_type!: ChargeType;
 
-  // @Prop({ required: true, enum: Object.values(PartyType) })
-  @Prop({ required: true })
+  // @Prop({ required: false, enum: Object.values(PartyType) })
+  @Prop({ required: false })
   party_type!: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: false, trim: true })
   party_rules!: string;
 
-  @Prop({ required: true, default: 'false' })
+  @Prop({ required: false, default: 'false' })
   is_ticket_sales!: string;
 
-  @Prop({ required: true, min: 0 })
+  @Prop({ required: false, min: 0 })
   price!: number;
 
-  @Prop({ required: true, min: 0 })
+  @Prop({ required: false, min: 0 })
   beds!: number;
 
-  @Prop({ required: true, min: 0 })
+  @Prop({ required: false, min: 0 })
   bathrooms!: number;
 
-  @Prop({ enum: Object.values(StatusType), default: 'draft' })
-  status!: StatusType;
-
-  @Prop({ required: true, type: Date })
+  @Prop({ required: false, type: Date })
   start_date!: Date;
 
-  @Prop({ required: true, type: Date })
+  @Prop({ required: false, type: Date })
   end_date!: Date;
 
   createdAt!: Date;

@@ -3,7 +3,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -12,11 +11,12 @@ import {
   IsOptional,
   IsString,
   Min,
+  MinLength,
 } from 'class-validator';
-import { ChargeType, StatusType } from '../schemas/party.schema';
+import { ChargeType, SpaceType, StatusType } from '../schemas/property.schema';
 
-export class CreatePartyDto {
-  @ApiProperty({ example: 'Summer rooftop party' })
+export class CreatePropertyDto {
+  @ApiProperty({ example: 'Summer rooftop property' })
   @IsString()
   @IsNotEmpty()
   title!: string;
@@ -33,7 +33,7 @@ export class CreatePartyDto {
 
   @ApiPropertyOptional({
     type: [String],
-    example: ['https://example.com/party.jpg'],
+    example: ['https://example.com/property.jpg'],
   })
   @IsOptional()
   @IsArray()
@@ -47,9 +47,13 @@ export class CreatePartyDto {
   @Min(1)
   guest_capacity!: number;
 
-  @ApiProperty({ enum: ChargeType, example: ChargeType.PERSON })
-  @IsEnum(ChargeType)
-  charge_type!: ChargeType;
+  // @ApiProperty({ enum: ChargeType, example: ChargeType.PERSON })
+  // @IsEnum(ChargeType)
+  // charge_type!: ChargeType;
+
+  @ApiProperty({ enum: ChargeType, example: SpaceType.ENTIRE })
+  @IsEnum(SpaceType)
+  space_type!: SpaceType;
 
   @ApiProperty({
     enum: StatusType,
@@ -62,12 +66,17 @@ export class CreatePartyDto {
   @ApiProperty({ example: 'No outside drinks. RSVP is required.' })
   @IsString()
   @IsNotEmpty()
-  party_rules!: string;
+  property_rules!: string;
+
+  @ApiProperty({ example: 'approve-first' })
+  @IsString()
+  @IsNotEmpty()
+  booking_setting!: string;
 
   @ApiProperty({ example: 'Nature and Adventure' })
   @IsString()
   @IsNotEmpty()
-  party_type!: string;
+  property_type!: string;
 
   @ApiProperty({ example: true, default: 'true' })
   @IsOptional()
@@ -106,4 +115,9 @@ export class CreatePartyDto {
   @IsNumber()
   @Min(0)
   bathrooms!: number;
+
+  @ApiProperty({ example: ['wifi', 'TV'] })
+  @IsArray()
+  @MinLength(1)
+  amenties!: [];
 }
