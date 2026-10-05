@@ -5,7 +5,9 @@ export default Joi.object({
   MONGO_URI: Joi.string()
     .required()
     .default(process.env.MONGO_URI || ''),
-  JWT_SECRET: Joi.string().default(process.env.JWT_SECRET || ''),
+  JWT_SECRET: Joi.string()
+    .required()
+    .default(process.env.JWT_SECRET || ''),
   CLOUDINARY_API_KEY: Joi.string()
     .required()
     .default(process.env.CLOUDINARY_API_KEY || ''),
