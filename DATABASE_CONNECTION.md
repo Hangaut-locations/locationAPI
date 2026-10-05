@@ -8,15 +8,15 @@ This document describes the database connection architecture for the locationAPI
 ### 1. Environment Configuration (.env)
 ```
 PORT=3400
-MONGO_URI=mongodb+srv://<db_username>:29dvZOQ887rYKCe6@hangautdb.wotkjes.mongodb.net/?appName=HangautDB
-JWT_SECRET=your-secret-key
+MONGO_URI=mongodb+srv://<db_username>:<db_password>@<cluster_host>/?appName=<app_name>
+JWT_SECRET=<your-secret-key>
 NODE_ENV=development
 ```
 
 ### 2. Configuration Validation (src/config/validation.ts)
 - Validates environment variables using Joi schema
-- Ensures MONGO_URI is required
-- Provides default values for PORT and JWT_SECRET
+- Ensures MONGO_URI and JWT_SECRET are required
+- Provides a default value for PORT
 - Validates NODE_ENV values
 
 ### 3. Database Module (src/database/database.module.ts)
