@@ -6,18 +6,18 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
-import { Model, Types } from 'mongoose';
+import { isValidObjectId, Model, Types } from 'mongoose';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { updatePropertyDto } from './dto/update-property.dto';
 import {
   Favorite,
   FavoriteTargetType,
 } from '../favorites/schemas/favorite.schema';
-import { Property } from './schemas/property.schema';
+import { Property, StatusType } from './schemas/property.schema';
 
 export interface PropertyByLocation {
   caption: string;
-  property: Property[];
+  properties: Property[];
 }
 
 export type PropertyWithFavorite = Record<string, unknown> & {
@@ -64,24 +64,30 @@ export class PropertyService {
     return this.propertyModel.find({ ownerId }).sort({ createdAt: -1 }).exec();
   }
 
-  async findById(propertyId: string): Promise<Property | null> {
-    try {
-      const property = this.propertyModel.findById(propertyId).exec();
-
-      if (!property) {
-        null;
-      }
-
-      return property;
-    } catch (err) {
-      throw new InternalServerErrorException('Unable to retrieve property');
+  async findById(
+    propertyId: string,
+    viewerId?: string,
+  ): Promise<Property | null> {
+    if (!isValidObjectId(propertyId)) {
+      return null;
     }
+
+    const property = await this.propertyModel.findById(propertyId).exec();
+    if (!property) {
+      return null;
+    }
+
+    const isOwner = viewerId !== undefined && property.ownerId.equals(viewerId);
+    if (property.status !== StatusType.PUBLISHED && !isOwner) {
+      return null;
+    }
+
+    return property;
   }
 
   async findAll(userId: string): Promise<PropertyWithFavorite[]> {
     const property = await this.propertyModel
-      .find()
-      .populate('targetId')
+      .find({ status: StatusType.PUBLISHED })
       .sort({ createdAt: -1 })
       .lean()
       .exec();
@@ -89,7 +95,7 @@ export class PropertyService {
     const favoriteProperty = await this.favoriteModel
       .find({
         userId: new Types.ObjectId(userId),
-        targetType: FavoriteTargetType.HOME,
+        targetType: FavoriteTargetType.PROPERTY,
         targetId: { $in: propertyIds },
       })
       .select('targetId')
@@ -110,7 +116,7 @@ export class PropertyService {
   ): Promise<PropertyByLocation[]> {
     try {
       const properties = await this.propertyModel
-        .find()
+        .find({ status: StatusType.PUBLISHED })
         .sort({ location: 1 })
         .lean();
 
@@ -123,7 +129,7 @@ export class PropertyService {
         const favoriteProperty = await this.favoriteModel
           .find({
             userId: new Types.ObjectId(userId),
-            targetType: FavoriteTargetType.HOME,
+            targetType: FavoriteTargetType.PROPERTY,
             targetId: { $in: propertyIds },
           })
           .select('targetId')
@@ -150,18 +156,17 @@ export class PropertyService {
       }
 
       return Array.from(propertyByLocation, ([location, locationProperty]) => ({
-        caption: `Property in ${location}`,
-        property: locationProperty,
+        caption: `Properties in ${location}`,
+        properties: locationProperty,
       }));
-    } catch (err) {
+    } catch {
       throw new InternalServerErrorException('Unable to retrieve property');
     }
   }
 
   //   GET all property categories
   async findAllCategories(): Promise<string[]> {
-    const categories = await this.propertyModel.distinct('category').exec();
-    return categories as string[];
+    return this.propertyModel.distinct('property_type').exec();
   }
 
   async update(
@@ -170,6 +175,10 @@ export class PropertyService {
     propertyData: updatePropertyDto,
     images: Express.Multer.File[] = [],
   ): Promise<Property | null> {
+    if (!isValidObjectId(propertyId)) {
+      return null;
+    }
+
     const property = await this.propertyModel
       .findOne({ _id: propertyId, ownerId })
       .exec();
@@ -255,6 +264,10 @@ export class PropertyService {
   }
 
   async delete(propertyId: string, ownerId: string): Promise<Property | null> {
+    if (!isValidObjectId(propertyId)) {
+      return null;
+    }
+
     return this.propertyModel
       .findOneAndDelete({ _id: propertyId, ownerId })
       .exec();

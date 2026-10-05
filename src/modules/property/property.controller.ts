@@ -26,10 +26,16 @@ import {
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { memoryStorage } from 'multer';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { updatePropertyDto } from './dto/update-property.dto';
 import { PropertyService } from './property.service';
-import { PropertyType, StatusType } from './schemas/property.schema';
+import {
+  ChargeType,
+  PropertyType,
+  SpaceType,
+  StatusType,
+} from './schemas/property.schema';
 
 interface AuthenticatedRequest extends Request {
   user: { _id: string };
@@ -50,19 +56,20 @@ export class PropertyController {
       properties: {
         title: { type: 'string' },
         description: { type: 'string' },
-        start_date: { type: 'date' },
-        end_date: { type: 'date' },
         location: { type: 'string' },
         images: { type: 'array', items: { type: 'string', format: 'binary' } },
-        charge_type: { type: 'string', enum: ['person', 'hour'] },
+        charge_type: { enum: Object.values(ChargeType), default: 'person' },
+        space_type: { enum: Object.values(SpaceType), default: 'entire' },
         property_rules: { type: 'string' },
+        booking_setting: { type: 'string', example: 'approve-first' },
         price: { type: 'number' },
-        status: { enum: Object.values(StatusType), default: 'draft' },
+        status: { enum: Object.values(StatusType), default: 'published' },
         property_type: { enum: Object.values(PropertyType) },
         guest_capacity: { type: 'integer' },
+        bedrooms: { type: 'number', example: 0 },
         beds: { type: 'number', example: 0 },
         bathrooms: { type: 'number', example: 0 },
-        category: { type: 'string' },
+        amenities: { type: 'array', items: { type: 'string' } },
       },
     },
   })
@@ -118,6 +125,7 @@ export class PropertyController {
   }
 
   @Get('grouped-by-location-user')
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'List all property grouped by location' })
   async findAllGroupedByLocationUser(@Req() request: AuthenticatedRequest) {
     const data = await this.PropertyService.findAllGroupedByLocation(
@@ -149,15 +157,27 @@ export class PropertyController {
   }
 
   @Get(':id')
-  // @UseGuards(AuthGuard('jwt'))
-  @ApiOperation({ summary: 'Get property by id' })
-  async findById(@Param('id') propertyId: string) {
-    const data = await this.PropertyService.findById(propertyId);
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get property by id (drafts are only visible to their owner)',
+  })
+  async findById(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') propertyId: string,
+  ) {
+    const data = await this.PropertyService.findById(
+      propertyId,
+      request.user?._id,
+    );
+    if (!data) {
+      throw new NotFoundException('Property not found');
+    }
+
     return {
       success: true,
-      statusCode: data ? 200 : 404,
+      statusCode: 200,
       data,
-      message: data ? 'Property retrieved successfully' : 'No property found',
+      message: 'Property retrieved successfully',
     };
   }
 
