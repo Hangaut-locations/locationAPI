@@ -49,8 +49,8 @@ export class Property extends Document {
   @Prop({ required: false, trim: true })
   description!: string;
 
-  @Prop({ required: false })
-  amenties!: [];
+  @Prop({ type: [String], default: [] })
+  amenities!: string[];
 
   @Prop({ required: false, trim: true })
   location!: string;
@@ -59,7 +59,7 @@ export class Property extends Document {
   status!: StatusType;
 
   @Prop({ default: 'entire', enum: Object.values(SpaceType) })
-  space_type!: StatusType;
+  space_type!: SpaceType;
 
   @Prop({
     type: [String],
@@ -71,15 +71,15 @@ export class Property extends Document {
   })
   images!: string[];
 
-  // @Prop({ required: false, enum: Object.values(ChargeType) })
-  // charge_type!: ChargeType;
+  @Prop({ default: 'person', enum: Object.values(ChargeType) })
+  charge_type!: ChargeType;
 
   // @Prop({ required: false, enum: Object.values(PropertyType) })
   @Prop({ required: false })
   property_type!: string;
 
-  // @Prop({ required: false, trim: true })
-  // property_rules!: string;
+  @Prop({ required: false, trim: true })
+  property_rules!: string;
 
   @Prop({ required: false, default: 'auto' })
   booking_type!: string;
@@ -101,12 +101,6 @@ export class Property extends Document {
 
   @Prop({ required: false, min: 0 })
   bathrooms!: number;
-
-  @Prop({ required: false, type: Date })
-  start_date!: Date;
-
-  @Prop({ required: false, type: Date })
-  end_date!: Date;
 
   createdAt!: Date;
   updatedAt!: Date;

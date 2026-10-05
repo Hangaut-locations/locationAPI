@@ -1,9 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -11,7 +10,6 @@ import {
   IsOptional,
   IsString,
   Min,
-  MinLength,
 } from 'class-validator';
 import { ChargeType, SpaceType, StatusType } from '../schemas/property.schema';
 
@@ -47,26 +45,24 @@ export class CreatePropertyDto {
   @Min(1)
   guest_capacity!: number;
 
-  // @ApiProperty({ enum: ChargeType, example: ChargeType.PERSON })
-  // @IsEnum(ChargeType)
-  // charge_type!: ChargeType;
+  @ApiPropertyOptional({ enum: ChargeType, default: ChargeType.PERSON })
+  @IsOptional()
+  @IsEnum(ChargeType)
+  charge_type?: ChargeType;
 
-  @ApiProperty({ enum: ChargeType, example: SpaceType.ENTIRE })
+  @ApiProperty({ enum: SpaceType, example: SpaceType.ENTIRE })
   @IsEnum(SpaceType)
   space_type!: SpaceType;
 
-  @ApiProperty({
-    enum: StatusType,
-    default: 'published',
-    example: StatusType.PUBLISHED,
-  })
+  @ApiPropertyOptional({ enum: StatusType, default: StatusType.PUBLISHED })
+  @IsOptional()
   @IsEnum(StatusType)
-  status!: 'published';
+  status?: StatusType;
 
-  @ApiProperty({ example: 'No outside drinks. RSVP is required.' })
+  @ApiPropertyOptional({ example: 'No outside drinks. RSVP is required.' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  property_rules!: string;
+  property_rules?: string;
 
   @ApiProperty({ example: 'approve-first' })
   @IsString()
@@ -78,25 +74,11 @@ export class CreatePropertyDto {
   @IsNotEmpty()
   property_type!: string;
 
-  @ApiProperty({ example: true, default: 'true' })
-  @IsOptional()
-  is_ticket_sales!: string;
-
   @ApiProperty({ example: 25, minimum: 0 })
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   price!: number;
-
-  // @ApiProperty({ example: '' })
-  @IsNotEmpty()
-  @IsDateString()
-  start_date!: string;
-
-  // @ApiProperty({ example: '' })
-  @IsNotEmpty()
-  @IsDateString()
-  end_date!: string;
 
   @ApiProperty({ example: 2, minimum: 0 })
   @Type(() => Number)
@@ -116,8 +98,12 @@ export class CreatePropertyDto {
   @Min(0)
   bathrooms!: number;
 
-  @ApiProperty({ example: ['wifi', 'TV'] })
+  @ApiPropertyOptional({ type: [String], example: ['wifi', 'TV'] })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === undefined || Array.isArray(value) ? value : [value],
+  )
   @IsArray()
-  @MinLength(1)
-  amenties!: [];
+  @IsString({ each: true })
+  amenities?: string[];
 }

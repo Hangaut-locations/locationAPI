@@ -3,7 +3,7 @@ import { Document, Types } from 'mongoose';
 
 export enum FavoriteTargetType {
   PARTY = 'Party',
-  HOME = 'Home',
+  PROPERTY = 'Property',
 }
 
 @Schema({ timestamps: true })
