@@ -13,7 +13,13 @@ import {
   Favorite,
   FavoriteTargetType,
 } from '../favorites/schemas/favorite.schema';
+import { User } from '../users/schemas/user.schema';
+import { findPublicHost, PublicHost } from '../users/host';
 import { Property, StatusType } from './schemas/property.schema';
+
+export type PropertyWithHost = Record<string, unknown> & {
+  host: PublicHost | null;
+};
 
 export interface PropertyByLocation {
   caption: string;
@@ -29,6 +35,7 @@ export class PropertyService {
   constructor(
     @InjectModel(Property.name) private propertyModel: Model<Property>,
     @InjectModel(Favorite.name) private favoriteModel: Model<Favorite>,
+    @InjectModel(User.name) private userModel: Model<User>,
     private configService: ConfigService,
   ) {
     const cloudinaryUrl =
@@ -67,7 +74,7 @@ export class PropertyService {
   async findById(
     propertyId: string,
     viewerId?: string,
-  ): Promise<Property | null> {
+  ): Promise<PropertyWithHost | null> {
     if (!isValidObjectId(propertyId)) {
       return null;
     }
@@ -82,7 +89,8 @@ export class PropertyService {
       return null;
     }
 
-    return property;
+    const host = await findPublicHost(this.userModel, property.ownerId);
+    return { ...property.toObject(), host };
   }
 
   async findAll(userId: string): Promise<PropertyWithFavorite[]> {

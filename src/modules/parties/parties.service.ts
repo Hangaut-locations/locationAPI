@@ -15,7 +15,13 @@ import {
   Favorite,
   FavoriteTargetType,
 } from '../favorites/schemas/favorite.schema';
+import { User } from '../users/schemas/user.schema';
+import { findPublicHost, PublicHost } from '../users/host';
 import { Party, StatusType } from './schemas/party.schema';
+
+export type PartyWithHost = Record<string, unknown> & {
+  host: PublicHost | null;
+};
 
 export interface PartiesByLocation {
   caption: string;
@@ -50,6 +56,7 @@ export class PartiesService implements OnModuleInit {
   constructor(
     @InjectModel(Party.name) private partyModel: Model<Party>,
     @InjectModel(Favorite.name) private favoriteModel: Model<Favorite>,
+    @InjectModel(User.name) private userModel: Model<User>,
     private configService: ConfigService,
   ) {
     const cloudinaryUrl =
@@ -130,7 +137,10 @@ export class PartiesService implements OnModuleInit {
   }
 
   /** Drafts are only visible to their owner. */
-  async findById(partyId: string, userId?: string): Promise<Party | null> {
+  async findById(
+    partyId: string,
+    userId?: string,
+  ): Promise<PartyWithHost | null> {
     if (!isValidObjectId(partyId)) {
       return null;
     }
@@ -145,7 +155,8 @@ export class PartiesService implements OnModuleInit {
       return null;
     }
 
-    return party;
+    const host = await findPublicHost(this.userModel, party.ownerId);
+    return { ...party.toObject(), host };
   }
 
   async findAll(userId: string): Promise<PartyWithFavorite[]> {
