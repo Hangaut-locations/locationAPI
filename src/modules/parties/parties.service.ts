@@ -2,18 +2,20 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
-import { Model, Types } from 'mongoose';
+import { isValidObjectId, Model, Types } from 'mongoose';
 import { CreatePartyDto } from './dto/create-party.dto';
 import { UpdatePartyDto } from './dto/update-party.dto';
 import {
   Favorite,
   FavoriteTargetType,
 } from '../favorites/schemas/favorite.schema';
-import { Party } from './schemas/party.schema';
+import { Party, StatusType } from './schemas/party.schema';
 
 export interface PartiesByLocation {
   caption: string;
@@ -24,8 +26,27 @@ export type PartyWithFavorite = Record<string, unknown> & {
   isFavorite: boolean;
 };
 
+/** Nigeria (WAT) is UTC+1 all year. */
+const NIGERIA_UTC_OFFSET_MS = 60 * 60 * 1000;
+
+/**
+ * Midnight at the end of the party's end date, Nigeria time.
+ * Dates arrive as "YYYY-MM-DD", which is stored as UTC midnight of that day.
+ */
+export const partyExpiry = (endDate: Date | string): Date => {
+  const end = new Date(endDate);
+  const nextDayUtc = Date.UTC(
+    end.getUTCFullYear(),
+    end.getUTCMonth(),
+    end.getUTCDate() + 1,
+  );
+  return new Date(nextDayUtc - NIGERIA_UTC_OFFSET_MS);
+};
+
 @Injectable()
-export class PartiesService {
+export class PartiesService implements OnModuleInit {
+  private readonly logger = new Logger(PartiesService.name);
+
   constructor(
     @InjectModel(Party.name) private partyModel: Model<Party>,
     @InjectModel(Favorite.name) private favoriteModel: Model<Favorite>,
@@ -43,6 +64,48 @@ export class PartiesService {
     });
   }
 
+  /** Parties created before auto-delete existed get an expiry too, so ended ones are cleaned up. */
+  async onModuleInit(): Promise<void> {
+    const parties = await this.partyModel
+      .find({ expires_at: null, end_date: { $ne: null } })
+      .select('end_date')
+      .lean()
+      .exec();
+    if (!parties.length) return;
+
+    await this.partyModel.bulkWrite(
+      parties.map((party) => ({
+        updateOne: {
+          filter: { _id: party._id },
+          update: { $set: { expires_at: partyExpiry(party.end_date) } },
+        },
+      })),
+    );
+    this.logger.log(`Set auto-delete date on ${parties.length} older parties`);
+  }
+
+  /** Published parties that haven't ended. */
+  private publicFilter() {
+    return {
+      status: { $ne: StatusType.DRAFT },
+      $or: [{ expires_at: null }, { expires_at: { $gt: new Date() } }],
+    };
+  }
+
+  private assertDateOrder(startDate?: Date | string, endDate?: Date | string) {
+    if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+      throw new BadRequestException({
+        message: 'Validation failed',
+        data: [
+          {
+            field: 'end_date',
+            messages: ['End date cannot be before the start date'],
+          },
+        ],
+      });
+    }
+  }
+
   async create(
     ownerId: string,
     partyData: CreatePartyDto,
@@ -51,11 +114,13 @@ export class PartiesService {
     if ((partyData.images?.length ?? 0) + images.length > 5) {
       throw new BadRequestException('A party can have at most 5 photos');
     }
+    this.assertDateOrder(partyData.start_date, partyData.end_date);
 
     const photoUrls = await this.uploadImages(images, partyData.images);
     return new this.partyModel({
       ...partyData,
       images: photoUrls,
+      expires_at: partyExpiry(partyData.end_date),
       ownerId: new Types.ObjectId(ownerId),
     }).save();
   }
@@ -64,24 +129,28 @@ export class PartiesService {
     return this.partyModel.find({ ownerId }).sort({ createdAt: -1 }).exec();
   }
 
-  async findById(partyId: string): Promise<Party | null> {
-    try {
-      const party = this.partyModel.findById(partyId).exec();
-
-      if (!party) {
-        null;
-      }
-
-      return party;
-    } catch (err) {
-      throw new InternalServerErrorException('Unable to retrieve party');
+  /** Drafts are only visible to their owner. */
+  async findById(partyId: string, userId?: string): Promise<Party | null> {
+    if (!isValidObjectId(partyId)) {
+      return null;
     }
+
+    const party = await this.partyModel.findById(partyId).exec();
+    if (!party) {
+      return null;
+    }
+
+    const isOwner = !!userId && party.ownerId.toString() === userId.toString();
+    if (party.status === StatusType.DRAFT && !isOwner) {
+      return null;
+    }
+
+    return party;
   }
 
   async findAll(userId: string): Promise<PartyWithFavorite[]> {
     const parties = await this.partyModel
-      .find()
-      .populate('targetId')
+      .find(this.publicFilter())
       .sort({ createdAt: -1 })
       .lean()
       .exec();
@@ -109,7 +178,10 @@ export class PartiesService {
     userId?: string,
   ): Promise<PartiesByLocation[]> {
     try {
-      const parties = await this.partyModel.find().sort({ location: 1 }).lean();
+      const parties = await this.partyModel
+        .find(this.publicFilter())
+        .sort({ location: 1 })
+        .lean();
 
       if (!parties.length) {
         return [];
@@ -147,15 +219,14 @@ export class PartiesService {
         caption: `Parties in ${location}`,
         parties: locationParties,
       }));
-    } catch (err) {
+    } catch {
       throw new InternalServerErrorException('Unable to retrieve parties');
     }
   }
 
   //   GET all party categories
   async findAllCategories(): Promise<string[]> {
-    const categories = await this.partyModel.distinct('category').exec();
-    return categories as string[];
+    return this.partyModel.distinct('party_type').exec();
   }
 
   async update(
@@ -164,6 +235,10 @@ export class PartiesService {
     partyData: UpdatePartyDto,
     images: Express.Multer.File[] = [],
   ): Promise<Party | null> {
+    if (!isValidObjectId(partyId)) {
+      return null;
+    }
+
     const party = await this.partyModel
       .findOne({ _id: partyId, ownerId })
       .exec();
@@ -171,7 +246,18 @@ export class PartiesService {
       return null;
     }
 
-    const updatedPartyData = { ...partyData };
+    this.assertDateOrder(
+      partyData.start_date ?? party.start_date,
+      partyData.end_date ?? party.end_date,
+    );
+
+    const updatedPartyData: UpdatePartyDto & { expires_at?: Date } = {
+      ...partyData,
+    };
+    if (partyData.end_date) {
+      updatedPartyData.expires_at = partyExpiry(partyData.end_date);
+    }
+
     const requestedImages = partyData.images ?? party.images;
     if (requestedImages.length + images.length > 5) {
       throw new BadRequestException('A party can have at most 5 photos');
@@ -249,6 +335,9 @@ export class PartiesService {
   }
 
   async delete(partyId: string, ownerId: string): Promise<Party | null> {
+    if (!isValidObjectId(partyId)) {
+      return null;
+    }
     return this.partyModel.findOneAndDelete({ _id: partyId, ownerId }).exec();
   }
 }
