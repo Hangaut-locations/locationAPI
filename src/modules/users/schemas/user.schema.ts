@@ -20,6 +20,9 @@ export class User extends Document {
   @Prop()
   address?: string;
 
+  @Prop()
+  phone?: string;
+
   @Prop({ required: true })
   country!: string;
 
@@ -29,7 +32,7 @@ export class User extends Document {
   @Prop({ required: true })
   city!: string;
 
-  @Prop({ required: true })
+  @Prop({ default: '' })
   bio!: string;
 
   @Prop({ default: Date.now })
