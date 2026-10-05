@@ -100,8 +100,18 @@ export class Party extends Document {
   @Prop({ required: false, type: Date })
   end_date!: Date;
 
+  /** "HH:mm", 24-hour, Nigeria time. */
+  @Prop({ required: false, trim: true })
+  start_time?: string;
+
+  /** End of the party's end date. MongoDB deletes the party once this passes. */
+  @Prop({ required: false, type: Date })
+  expires_at?: Date;
+
   createdAt!: Date;
   updatedAt!: Date;
 }
 
 export const PartySchema = SchemaFactory.createForClass(Party);
+
+PartySchema.index({ expires_at: 1 }, { expireAfterSeconds: 0 });

@@ -29,6 +29,7 @@ import { memoryStorage } from 'multer';
 import { CreatePartyDto } from './dto/create-party.dto';
 import { UpdatePartyDto } from './dto/update-party.dto';
 import { PartiesService } from './parties.service';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard';
 import { PartyType, StatusType } from './schemas/party.schema';
 
 interface AuthenticatedRequest extends Request {
@@ -48,8 +49,9 @@ export class PartiesController {
     schema: {
       type: 'object',
       properties: {
-        start_date: { type: 'date' },
-        end_date: { type: 'date' },
+        start_date: { type: 'string', format: 'date', example: '2026-10-20' },
+        end_date: { type: 'string', format: 'date', example: '2026-10-20' },
+        start_time: { type: 'string', example: '18:30' },
         title: { type: 'string' },
         description: { type: 'string' },
         location: { type: 'string' },
@@ -115,7 +117,11 @@ export class PartiesController {
   }
 
   @Get('grouped-by-location-user')
-  @ApiOperation({ summary: 'List all parties grouped by location' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({
+    summary:
+      'List all parties grouped by location, with isFavorite for the signed-in user',
+  })
   async findAllGroupedByLocationUser(@Req() request: AuthenticatedRequest) {
     const data = await this.partiesService.findAllGroupedByLocation(
       request?.user?._id,
@@ -146,10 +152,13 @@ export class PartiesController {
   }
 
   @Get(':id')
-  // @UseGuards(AuthGuard('jwt'))
-  @ApiOperation({ summary: 'Get party by id' })
-  async findById(@Param('id') partyId: string) {
-    const data = await this.partiesService.findById(partyId);
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Get party by id (drafts only for their owner)' })
+  async findById(
+    @Req() request: Partial<AuthenticatedRequest>,
+    @Param('id') partyId: string,
+  ) {
+    const data = await this.partiesService.findById(partyId, request.user?._id);
     return {
       success: true,
       statusCode: data ? 200 : 404,

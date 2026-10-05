@@ -3,7 +3,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -11,6 +10,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Min,
 } from 'class-validator';
 import { ChargeType, StatusType } from '../schemas/party.schema';
@@ -88,6 +88,16 @@ export class CreatePartyDto {
   @IsNotEmpty()
   @IsDateString()
   end_date!: string;
+
+  @ApiPropertyOptional({
+    example: '18:30',
+    description: 'Start time, 24-hour "HH:mm" (Nigeria time)',
+  })
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, {
+    message: 'Start time must look like 18:30',
+  })
+  start_time?: string;
 
   @ApiProperty({ example: 2, minimum: 0 })
   @Type(() => Number)
