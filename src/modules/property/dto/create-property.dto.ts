@@ -11,20 +11,24 @@ import {
   IsString,
   Min,
 } from 'class-validator';
+import { RequiredUnlessDraft } from '../../listings/draft';
 import { ChargeType, SpaceType, StatusType } from '../schemas/property.schema';
 
 export class CreatePropertyDto {
   @ApiProperty({ example: 'Summer rooftop property' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   title!: string;
 
   @ApiProperty({ example: 'An evening of music, food, and good company.' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   description!: string;
 
   @ApiProperty({ example: '12 Marina Road, Lagos' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   location!: string;
@@ -40,6 +44,7 @@ export class CreatePropertyDto {
   images?: string[];
 
   @ApiProperty({ example: 50, minimum: 1 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -51,6 +56,7 @@ export class CreatePropertyDto {
   charge_type?: ChargeType;
 
   @ApiProperty({ enum: SpaceType, example: SpaceType.ENTIRE })
+  @RequiredUnlessDraft()
   @IsEnum(SpaceType)
   space_type!: SpaceType;
 
@@ -65,34 +71,40 @@ export class CreatePropertyDto {
   property_rules?: string;
 
   @ApiProperty({ example: 'approve-first' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   booking_setting!: string;
 
   @ApiProperty({ example: 'Nature and Adventure' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   property_type!: string;
 
   @ApiProperty({ example: 25, minimum: 0 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   price!: number;
 
   @ApiProperty({ example: 2, minimum: 0 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   bedrooms!: number;
 
   @ApiProperty({ example: 2, minimum: 0 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   beds!: number;
 
   @ApiProperty({ example: 2, minimum: 0 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
@@ -107,3 +119,14 @@ export class CreatePropertyDto {
   @IsString({ each: true })
   amenities?: string[];
 }
+
+export const PROPERTY_PUBLISH_FIELDS = [
+  'title',
+  'description',
+  'location',
+  'guest_capacity',
+  'space_type',
+  'booking_setting',
+  'property_type',
+  'price',
+] as const;

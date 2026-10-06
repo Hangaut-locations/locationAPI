@@ -7,7 +7,11 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
 import { isValidObjectId, Model, Types } from 'mongoose';
-import { CreatePropertyDto } from './dto/create-property.dto';
+import {
+  CreatePropertyDto,
+  PROPERTY_PUBLISH_FIELDS,
+} from './dto/create-property.dto';
+import { assertPublishable } from '../listings/draft';
 import { updatePropertyDto } from './dto/update-property.dto';
 import {
   Favorite,
@@ -209,6 +213,10 @@ export class PropertyService {
     if ((updatedPropertyData.images?.length ?? property.images.length) > 5) {
       throw new BadRequestException('A property can have at most 5 photos');
     }
+    assertPublishable(
+      { ...property.toObject(), ...updatedPropertyData },
+      PROPERTY_PUBLISH_FIELDS,
+    );
 
     return this.propertyModel
       .findOneAndUpdate({ _id: propertyId, ownerId }, updatedPropertyData, {

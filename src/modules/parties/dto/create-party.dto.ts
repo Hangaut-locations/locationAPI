@@ -13,20 +13,24 @@ import {
   Matches,
   Min,
 } from 'class-validator';
+import { RequiredUnlessDraft } from '../../listings/draft';
 import { ChargeType, StatusType } from '../schemas/party.schema';
 
 export class CreatePartyDto {
   @ApiProperty({ example: 'Summer rooftop party' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   title!: string;
 
   @ApiProperty({ example: 'An evening of music, food, and good company.' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   description!: string;
 
   @ApiProperty({ example: '12 Marina Road, Lagos' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   location!: string;
@@ -42,12 +46,14 @@ export class CreatePartyDto {
   images?: string[];
 
   @ApiProperty({ example: 50, minimum: 1 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   guest_capacity!: number;
 
   @ApiProperty({ enum: ChargeType, example: ChargeType.PERSON })
+  @RequiredUnlessDraft()
   @IsEnum(ChargeType)
   charge_type!: ChargeType;
 
@@ -57,14 +63,16 @@ export class CreatePartyDto {
     example: StatusType.PUBLISHED,
   })
   @IsEnum(StatusType)
-  status!: 'published';
+  status!: StatusType;
 
   @ApiProperty({ example: 'No outside drinks. RSVP is required.' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   party_rules!: string;
 
   @ApiProperty({ example: 'Nature and Adventure' })
+  @RequiredUnlessDraft()
   @IsString()
   @IsNotEmpty()
   party_type!: string;
@@ -74,17 +82,20 @@ export class CreatePartyDto {
   is_ticket_sales!: string;
 
   @ApiProperty({ example: 25, minimum: 0 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   price!: number;
 
   // @ApiProperty({ example: '' })
+  @RequiredUnlessDraft()
   @IsNotEmpty()
   @IsDateString()
   start_date!: string;
 
   // @ApiProperty({ example: '' })
+  @RequiredUnlessDraft()
   @IsNotEmpty()
   @IsDateString()
   end_date!: string;
@@ -100,20 +111,36 @@ export class CreatePartyDto {
   start_time?: string;
 
   @ApiProperty({ example: 2, minimum: 0 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   bedrooms!: number;
 
   @ApiProperty({ example: 2, minimum: 0 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   beds!: number;
 
   @ApiProperty({ example: 2, minimum: 0 })
+  @RequiredUnlessDraft()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   bathrooms!: number;
 }
+
+export const PARTY_PUBLISH_FIELDS = [
+  'title',
+  'description',
+  'location',
+  'guest_capacity',
+  'charge_type',
+  'party_rules',
+  'party_type',
+  'price',
+  'start_date',
+  'end_date',
+] as const;

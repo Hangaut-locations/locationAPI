@@ -9,7 +9,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
 import { isValidObjectId, Model, Types } from 'mongoose';
-import { CreatePartyDto } from './dto/create-party.dto';
+import { CreatePartyDto, PARTY_PUBLISH_FIELDS } from './dto/create-party.dto';
+import { assertPublishable } from '../listings/draft';
 import { UpdatePartyDto } from './dto/update-party.dto';
 import {
   Favorite,
@@ -127,7 +128,7 @@ export class PartiesService implements OnModuleInit {
     return new this.partyModel({
       ...partyData,
       images: photoUrls,
-      expires_at: partyExpiry(partyData.end_date),
+      expires_at: partyData.end_date ? partyExpiry(partyData.end_date) : null,
       ownerId: new Types.ObjectId(ownerId),
     }).save();
   }
@@ -283,6 +284,10 @@ export class PartiesService implements OnModuleInit {
     if ((updatedPartyData.images?.length ?? party.images.length) > 5) {
       throw new BadRequestException('A party can have at most 5 photos');
     }
+    assertPublishable(
+      { ...party.toObject(), ...updatedPartyData },
+      PARTY_PUBLISH_FIELDS,
+    );
 
     return this.partyModel
       .findOneAndUpdate({ _id: partyId, ownerId }, updatedPartyData, {
