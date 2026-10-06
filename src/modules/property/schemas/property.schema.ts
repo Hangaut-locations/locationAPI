@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { requiredUnlessDraft } from '../../listings/draft';
 
 export enum ChargeType {
   PERSON = 'person',
@@ -40,7 +41,7 @@ export class Property extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   ownerId!: Types.ObjectId;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: requiredUnlessDraft, trim: true })
   title!: string;
 
   @Prop({ required: false, default: false })
