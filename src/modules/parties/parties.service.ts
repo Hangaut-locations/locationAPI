@@ -11,6 +11,11 @@ import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
 import { isValidObjectId, Model, Types } from 'mongoose';
 import { CreatePartyDto, PARTY_PUBLISH_FIELDS } from './dto/create-party.dto';
 import { assertPublishable } from '../listings/draft';
+import {
+  BACKFILL_PUBLISHED_AT,
+  NEWEST_FIRST,
+  publishedAtFor,
+} from '../listings/published';
 import { UpdatePartyDto } from './dto/update-party.dto';
 import {
   Favorite,
@@ -74,6 +79,14 @@ export class PartiesService implements OnModuleInit {
 
   /** Parties created before auto-delete existed get an expiry too, so ended ones are cleaned up. */
   async onModuleInit(): Promise<void> {
+    await this.partyModel
+      .updateMany(
+        { status: { $ne: StatusType.DRAFT }, published_at: null },
+        BACKFILL_PUBLISHED_AT,
+        { updatePipeline: true },
+      )
+      .exec();
+
     const parties = await this.partyModel
       .find({ expires_at: null, end_date: { $ne: null } })
       .select('end_date')
@@ -129,6 +142,7 @@ export class PartiesService implements OnModuleInit {
       ...partyData,
       images: photoUrls,
       expires_at: partyData.end_date ? partyExpiry(partyData.end_date) : null,
+      published_at: publishedAtFor(partyData.status ?? StatusType.PUBLISHED),
       ownerId: new Types.ObjectId(ownerId),
     }).save();
   }
@@ -163,7 +177,7 @@ export class PartiesService implements OnModuleInit {
   async findAll(userId: string): Promise<PartyWithFavorite[]> {
     const parties = await this.partyModel
       .find(this.publicFilter())
-      .sort({ createdAt: -1 })
+      .sort(NEWEST_FIRST)
       .lean()
       .exec();
     const partyIds = parties.map((party) => party._id);
@@ -192,7 +206,7 @@ export class PartiesService implements OnModuleInit {
     try {
       const parties = await this.partyModel
         .find(this.publicFilter())
-        .sort({ location: 1 })
+        .sort(NEWEST_FIRST)
         .lean();
 
       if (!parties.length) {
@@ -263,9 +277,16 @@ export class PartiesService implements OnModuleInit {
       partyData.end_date ?? party.end_date,
     );
 
-    const updatedPartyData: UpdatePartyDto & { expires_at?: Date } = {
+    const updatedPartyData: UpdatePartyDto & {
+      expires_at?: Date;
+      published_at?: Date;
+    } = {
       ...partyData,
     };
+    const publishedAt = publishedAtFor(partyData.status, party.status);
+    if (publishedAt) {
+      updatedPartyData.published_at = publishedAt;
+    }
     if (partyData.end_date) {
       updatedPartyData.expires_at = partyExpiry(partyData.end_date);
     }

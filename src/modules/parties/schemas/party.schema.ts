@@ -109,6 +109,9 @@ export class Party extends Document {
   @Prop({ required: false, type: Date })
   expires_at?: Date;
 
+  @Prop({ required: false, type: Date, index: true })
+  published_at?: Date;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

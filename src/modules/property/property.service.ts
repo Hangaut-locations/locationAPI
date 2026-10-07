@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -12,6 +13,11 @@ import {
   PROPERTY_PUBLISH_FIELDS,
 } from './dto/create-property.dto';
 import { assertPublishable } from '../listings/draft';
+import {
+  BACKFILL_PUBLISHED_AT,
+  NEWEST_FIRST,
+  publishedAtFor,
+} from '../listings/published';
 import { updatePropertyDto } from './dto/update-property.dto';
 import {
   Favorite,
@@ -35,7 +41,7 @@ export type PropertyWithFavorite = Record<string, unknown> & {
 };
 
 @Injectable()
-export class PropertyService {
+export class PropertyService implements OnModuleInit {
   constructor(
     @InjectModel(Property.name) private propertyModel: Model<Property>,
     @InjectModel(Favorite.name) private favoriteModel: Model<Favorite>,
@@ -54,6 +60,16 @@ export class PropertyService {
     });
   }
 
+  async onModuleInit(): Promise<void> {
+    await this.propertyModel
+      .updateMany(
+        { status: { $ne: StatusType.DRAFT }, published_at: null },
+        BACKFILL_PUBLISHED_AT,
+        { updatePipeline: true },
+      )
+      .exec();
+  }
+
   async create(
     ownerId: string,
     propertyData: CreatePropertyDto,
@@ -67,6 +83,7 @@ export class PropertyService {
     return new this.propertyModel({
       ...propertyData,
       images: photoUrls,
+      published_at: publishedAtFor(propertyData.status ?? StatusType.PUBLISHED),
       ownerId: new Types.ObjectId(ownerId),
     }).save();
   }
@@ -100,7 +117,7 @@ export class PropertyService {
   async findAll(userId: string): Promise<PropertyWithFavorite[]> {
     const property = await this.propertyModel
       .find({ status: StatusType.PUBLISHED })
-      .sort({ createdAt: -1 })
+      .sort(NEWEST_FIRST)
       .lean()
       .exec();
     const propertyIds = property.map((property) => property._id);
@@ -129,7 +146,7 @@ export class PropertyService {
     try {
       const properties = await this.propertyModel
         .find({ status: StatusType.PUBLISHED })
-        .sort({ location: 1 })
+        .sort(NEWEST_FIRST)
         .lean();
 
       if (!properties.length) {
@@ -198,7 +215,13 @@ export class PropertyService {
       return null;
     }
 
-    const updatedPropertyData = { ...propertyData };
+    const updatedPropertyData: updatePropertyDto & { published_at?: Date } = {
+      ...propertyData,
+    };
+    const publishedAt = publishedAtFor(propertyData.status, property.status);
+    if (publishedAt) {
+      updatedPropertyData.published_at = publishedAt;
+    }
     const requestedImages = propertyData.images ?? property.images;
     if (requestedImages.length + images.length > 5) {
       throw new BadRequestException('A property can have at most 5 photos');
