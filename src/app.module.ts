@@ -9,6 +9,7 @@ import { UsersModule } from './modules/users/users.module';
 import { PartiesModule } from './modules/parties/parties.module';
 import { FavoritesModule } from './modules/favorites/favorites.module';
 import { PropertyModule } from './modules/property/property.module';
+import { BookingsModule } from './modules/bookings/bookings.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { PropertyModule } from './modules/property/property.module';
     PartiesModule,
     PropertyModule,
     FavoritesModule,
+    BookingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
