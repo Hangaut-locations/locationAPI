@@ -26,6 +26,7 @@ import { PropertyBooking } from './schemas/property-booking.schema';
 /** Nigeria (WAT) is UTC+1 all year. */
 const NIGERIA_UTC_OFFSET_MS = 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 const GUEST_FIELDS = 'firstName lastName email phone';
 
 /** "2026-10-20" + "14:00" in Nigeria time. */
@@ -41,6 +42,19 @@ export const nigeriaDateTime = (date: string, time: string): Date => {
       minutes,
     ) - NIGERIA_UTC_OFFSET_MS,
   );
+};
+
+/** Start and end date both count, so a one-day party is 1. */
+export const partyLengthInDays = (
+  startDate?: Date | string,
+  endDate?: Date | string,
+): number => {
+  if (!startDate || !endDate) return 1;
+  const days =
+    Math.round(
+      (new Date(endDate).getTime() - new Date(startDate).getTime()) / DAY_MS,
+    ) + 1;
+  return Math.max(days, 1);
 };
 
 const fieldError = (field: string, message: string) =>
@@ -79,6 +93,19 @@ export class BookingsService {
     if (perHour && !bookingData.hours) {
       throw fieldError('hours', 'Pick how many hours you are booking');
     }
+    const perDay = party.charge_type === ChargeType.DAY;
+    if (perDay) {
+      if (!bookingData.days) {
+        throw fieldError('days', 'Pick how many days you are booking');
+      }
+      const partyDays = partyLengthInDays(party.start_date, party.end_date);
+      if (bookingData.days > partyDays) {
+        throw fieldError(
+          'days',
+          `This party only runs for ${partyDays} day${partyDays === 1 ? '' : 's'}`,
+        );
+      }
+    }
 
     const alreadyBooked = await this.partyBookingModel.exists({
       partyId: party._id,
@@ -111,9 +138,12 @@ export class BookingsService {
       hostId: party.ownerId,
       guests: bookingData.guests,
       hours: perHour ? bookingData.hours : undefined,
+      days: perDay ? bookingData.days : undefined,
       total: perHour
         ? price * (bookingData.hours ?? 1)
-        : price * bookingData.guests,
+        : perDay
+          ? price * (bookingData.days ?? 1)
+          : price * bookingData.guests,
       status: BookingStatus.CONFIRMED,
       note: bookingData.note,
       title: party.title,

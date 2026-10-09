@@ -32,6 +32,16 @@ export class CreatePartyBookingDto {
   @Max(24)
   hours?: number;
 
+  @ApiPropertyOptional({
+    example: 2,
+    description: 'Needed when the party charges per day',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  days?: number;
+
   @ApiPropertyOptional({ example: 'Coming with my sister' })
   @IsOptional()
   @IsString()
