@@ -42,6 +42,14 @@ export class CreatePartyBookingDto {
   @Min(1)
   days?: number;
 
+  @ApiPropertyOptional({
+    description: 'Key from the private link, needed for private parties',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  key?: string;
+
   @ApiPropertyOptional({ example: 'Coming with my sister' })
   @IsOptional()
   @IsString()

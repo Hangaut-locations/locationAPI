@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   OnModuleInit,
@@ -13,7 +14,13 @@ import {
   PROPERTY_PUBLISH_FIELDS,
 } from './dto/create-property.dto';
 import { assertPublishable } from '../listings/draft';
-import { NOT_PRIVATE } from '../listings/visibility';
+import {
+  canOpenListing,
+  MISSING_PRIVATE_KEY,
+  newPrivateKey,
+  NOT_PRIVATE,
+  Visibility,
+} from '../listings/visibility';
 import {
   BACKFILL_PUBLISHED_AT,
   NEWEST_FIRST,
@@ -69,6 +76,21 @@ export class PropertyService implements OnModuleInit {
         { updatePipeline: true },
       )
       .exec();
+    const keyless = await this.propertyModel
+      .find(MISSING_PRIVATE_KEY)
+      .select('_id')
+      .lean()
+      .exec();
+    if (keyless.length) {
+      await this.propertyModel.bulkWrite(
+        keyless.map((property) => ({
+          updateOne: {
+            filter: { _id: property._id },
+            update: { $set: { private_key: newPrivateKey() } },
+          },
+        })),
+      );
+    }
   }
 
   async create(
@@ -85,23 +107,36 @@ export class PropertyService implements OnModuleInit {
       ...propertyData,
       images: photoUrls,
       published_at: publishedAtFor(propertyData.status ?? StatusType.PUBLISHED),
+      private_key:
+        propertyData.visibility === Visibility.PRIVATE
+          ? newPrivateKey()
+          : undefined,
       ownerId: new Types.ObjectId(ownerId),
     }).save();
   }
 
   async findByOwner(ownerId: string): Promise<Property[]> {
-    return this.propertyModel.find({ ownerId }).sort({ createdAt: -1 }).exec();
+    return this.propertyModel
+      .find({ ownerId })
+      .select('+private_key')
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
+  /** Private places need the key from the link. */
   async findById(
     propertyId: string,
     viewerId?: string,
+    key?: string,
   ): Promise<PropertyWithHost | null> {
     if (!isValidObjectId(propertyId)) {
       return null;
     }
 
-    const property = await this.propertyModel.findById(propertyId).exec();
+    const property = await this.propertyModel
+      .findById(propertyId)
+      .select('+private_key')
+      .exec();
     if (!property) {
       return null;
     }
@@ -110,9 +145,33 @@ export class PropertyService implements OnModuleInit {
     if (property.status !== StatusType.PUBLISHED && !isOwner) {
       return null;
     }
+    if (!canOpenListing(property, isOwner, key)) {
+      throw new ForbiddenException(
+        'This place is private. Ask the host for the link.',
+      );
+    }
 
     const host = await findPublicHost(this.userModel, property.ownerId);
-    return { ...property.toObject(), host };
+    const { private_key, ...shared } = property.toObject();
+    return { ...(isOwner ? { ...shared, private_key } : shared), host };
+  }
+
+  /** New key for the private link, old links stop working. */
+  async resetPrivateKey(
+    propertyId: string,
+    ownerId: string,
+  ): Promise<string | null> {
+    if (!isValidObjectId(propertyId)) {
+      return null;
+    }
+    const privateKey = newPrivateKey();
+    const property = await this.propertyModel
+      .findOneAndUpdate(
+        { _id: propertyId, ownerId, visibility: Visibility.PRIVATE },
+        { private_key: privateKey },
+      )
+      .exec();
+    return property ? privateKey : null;
   }
 
   async findAll(userId: string): Promise<PropertyWithFavorite[]> {
@@ -211,14 +270,24 @@ export class PropertyService implements OnModuleInit {
 
     const property = await this.propertyModel
       .findOne({ _id: propertyId, ownerId })
+      .select('+private_key')
       .exec();
     if (!property) {
       return null;
     }
 
-    const updatedPropertyData: updatePropertyDto & { published_at?: Date } = {
+    const updatedPropertyData: updatePropertyDto & {
+      published_at?: Date;
+      private_key?: string;
+    } = {
       ...propertyData,
     };
+    if (
+      propertyData.visibility === Visibility.PRIVATE &&
+      !property.private_key
+    ) {
+      updatedPropertyData.private_key = newPrivateKey();
+    }
     const publishedAt = publishedAtFor(propertyData.status, property.status);
     if (publishedAt) {
       updatedPropertyData.published_at = publishedAt;
@@ -247,6 +316,7 @@ export class PropertyService implements OnModuleInit {
         new: true,
         runValidators: true,
       })
+      .select('+private_key')
       .exec();
   }
 

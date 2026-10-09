@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
+import { canOpenListing } from '../listings/visibility';
 import { partyExpiry } from '../parties/parties.service';
 import {
   ChargeType,
@@ -80,10 +82,18 @@ export class BookingsService {
     guestId: string,
     bookingData: CreatePartyBookingDto,
   ): Promise<PartyBooking> {
-    const party = await this.partyModel.findById(bookingData.partyId).exec();
+    const party = await this.partyModel
+      .findById(bookingData.partyId)
+      .select('+private_key')
+      .exec();
     const hasEnded = !!party?.expires_at && party.expires_at <= new Date();
     if (!party || party.status === PartyStatus.DRAFT || hasEnded) {
       throw new NotFoundException('Party not found');
+    }
+    if (!canOpenListing(party, false, bookingData.key)) {
+      throw new ForbiddenException(
+        'This party is private. Ask the host for the link.',
+      );
     }
     if (party.ownerId.toString() === guestId.toString()) {
       throw new BadRequestException("You can't book your own party");
@@ -163,9 +173,15 @@ export class BookingsService {
   ): Promise<PropertyBooking> {
     const property = await this.propertyModel
       .findById(bookingData.propertyId)
+      .select('+private_key')
       .exec();
     if (!property || property.status !== PropertyStatus.PUBLISHED) {
       throw new NotFoundException('Property not found');
+    }
+    if (!canOpenListing(property, false, bookingData.key)) {
+      throw new ForbiddenException(
+        'This place is private. Ask the host for the link.',
+      );
     }
     if (property.ownerId.toString() === guestId.toString()) {
       throw new BadRequestException("You can't book your own place");

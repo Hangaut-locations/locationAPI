@@ -63,6 +63,10 @@ export class Property extends Document {
   @Prop({ default: Visibility.PUBLIC, enum: Object.values(Visibility) })
   visibility!: Visibility;
 
+  /** Only sent to the owner, so they can share the private link. */
+  @Prop({ select: false })
+  private_key?: string;
+
   @Prop({ default: 'entire', enum: Object.values(SpaceType) })
   space_type!: SpaceType;
 

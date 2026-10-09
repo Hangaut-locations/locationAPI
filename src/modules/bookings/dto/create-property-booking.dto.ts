@@ -40,6 +40,14 @@ export class CreatePropertyBookingDto {
   @Min(1)
   guests!: number;
 
+  @ApiPropertyOptional({
+    description: 'Key from the private link, needed for private places',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  key?: string;
+
   @ApiPropertyOptional({ example: 'Small birthday hangout' })
   @IsOptional()
   @IsString()

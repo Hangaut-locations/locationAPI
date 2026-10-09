@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -11,7 +12,13 @@ import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
 import { isValidObjectId, Model, Types } from 'mongoose';
 import { CreatePartyDto, PARTY_PUBLISH_FIELDS } from './dto/create-party.dto';
 import { assertPublishable } from '../listings/draft';
-import { NOT_PRIVATE } from '../listings/visibility';
+import {
+  canOpenListing,
+  MISSING_PRIVATE_KEY,
+  newPrivateKey,
+  NOT_PRIVATE,
+  Visibility,
+} from '../listings/visibility';
 import {
   BACKFILL_PUBLISHED_AT,
   NEWEST_FIRST,
@@ -87,6 +94,21 @@ export class PartiesService implements OnModuleInit {
         { updatePipeline: true },
       )
       .exec();
+    const keyless = await this.partyModel
+      .find(MISSING_PRIVATE_KEY)
+      .select('_id')
+      .lean()
+      .exec();
+    if (keyless.length) {
+      await this.partyModel.bulkWrite(
+        keyless.map((party) => ({
+          updateOne: {
+            filter: { _id: party._id },
+            update: { $set: { private_key: newPrivateKey() } },
+          },
+        })),
+      );
+    }
 
     const parties = await this.partyModel
       .find({ expires_at: null, end_date: { $ne: null } })
@@ -145,24 +167,36 @@ export class PartiesService implements OnModuleInit {
       images: photoUrls,
       expires_at: partyData.end_date ? partyExpiry(partyData.end_date) : null,
       published_at: publishedAtFor(partyData.status ?? StatusType.PUBLISHED),
+      private_key:
+        partyData.visibility === Visibility.PRIVATE
+          ? newPrivateKey()
+          : undefined,
       ownerId: new Types.ObjectId(ownerId),
     }).save();
   }
 
   async findByOwner(ownerId: string): Promise<Party[]> {
-    return this.partyModel.find({ ownerId }).sort({ createdAt: -1 }).exec();
+    return this.partyModel
+      .find({ ownerId })
+      .select('+private_key')
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
-  /** Drafts are only visible to their owner. */
+  /** Drafts are only visible to their owner, private parties need the key from the link. */
   async findById(
     partyId: string,
     userId?: string,
+    key?: string,
   ): Promise<PartyWithHost | null> {
     if (!isValidObjectId(partyId)) {
       return null;
     }
 
-    const party = await this.partyModel.findById(partyId).exec();
+    const party = await this.partyModel
+      .findById(partyId)
+      .select('+private_key')
+      .exec();
     if (!party) {
       return null;
     }
@@ -171,9 +205,33 @@ export class PartiesService implements OnModuleInit {
     if (party.status === StatusType.DRAFT && !isOwner) {
       return null;
     }
+    if (!canOpenListing(party, isOwner, key)) {
+      throw new ForbiddenException(
+        'This party is private. Ask the host for the link.',
+      );
+    }
 
     const host = await findPublicHost(this.userModel, party.ownerId);
-    return { ...party.toObject(), host };
+    const { private_key, ...shared } = party.toObject();
+    return { ...(isOwner ? { ...shared, private_key } : shared), host };
+  }
+
+  /** New key for the private link, old links stop working. */
+  async resetPrivateKey(
+    partyId: string,
+    ownerId: string,
+  ): Promise<string | null> {
+    if (!isValidObjectId(partyId)) {
+      return null;
+    }
+    const privateKey = newPrivateKey();
+    const party = await this.partyModel
+      .findOneAndUpdate(
+        { _id: partyId, ownerId, visibility: Visibility.PRIVATE },
+        { private_key: privateKey },
+      )
+      .exec();
+    return party ? privateKey : null;
   }
 
   async findAll(userId: string): Promise<PartyWithFavorite[]> {
@@ -269,6 +327,7 @@ export class PartiesService implements OnModuleInit {
 
     const party = await this.partyModel
       .findOne({ _id: partyId, ownerId })
+      .select('+private_key')
       .exec();
     if (!party) {
       return null;
@@ -282,9 +341,13 @@ export class PartiesService implements OnModuleInit {
     const updatedPartyData: UpdatePartyDto & {
       expires_at?: Date;
       published_at?: Date;
+      private_key?: string;
     } = {
       ...partyData,
     };
+    if (partyData.visibility === Visibility.PRIVATE && !party.private_key) {
+      updatedPartyData.private_key = newPrivateKey();
+    }
     const publishedAt = publishedAtFor(partyData.status, party.status);
     if (publishedAt) {
       updatedPartyData.published_at = publishedAt;
@@ -317,6 +380,7 @@ export class PartiesService implements OnModuleInit {
         new: true,
         runValidators: true,
       })
+      .select('+private_key')
       .exec();
   }
 
