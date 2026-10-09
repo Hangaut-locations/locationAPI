@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UploadedFiles,
   UseGuards,
@@ -153,18 +154,45 @@ export class PartiesController {
 
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
-  @ApiOperation({ summary: 'Get party by id (drafts only for their owner)' })
+  @ApiOperation({
+    summary:
+      'Get party by id (drafts only for their owner, private parties need ?key from the link)',
+  })
   async findById(
     @Req() request: Partial<AuthenticatedRequest>,
     @Param('id') partyId: string,
+    @Query('key') key?: string,
   ) {
-    const data = await this.partiesService.findById(partyId, request.user?._id);
+    const data = await this.partiesService.findById(
+      partyId,
+      request.user?._id,
+      key,
+    );
     return {
       success: true,
       statusCode: data ? 200 : 404,
       data,
       message: data ? 'Party retrieved successfully' : 'No party found',
     };
+  }
+
+  @Post(':id/private-link')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({
+    summary: 'New key for a private party link, old links stop working',
+  })
+  async resetPrivateLink(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') partyId: string,
+  ) {
+    const privateKey = await this.partiesService.resetPrivateKey(
+      partyId,
+      request.user._id,
+    );
+    if (!privateKey) {
+      throw new NotFoundException('Private party not found');
+    }
+    return { private_key: privateKey };
   }
 
   @Patch(':id')

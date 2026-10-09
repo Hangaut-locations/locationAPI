@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UploadedFiles,
   UseGuards,
@@ -159,15 +160,18 @@ export class PropertyController {
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
-    summary: 'Get property by id (drafts are only visible to their owner)',
+    summary:
+      'Get property by id (drafts only for their owner, private places need ?key from the link)',
   })
   async findById(
     @Req() request: AuthenticatedRequest,
     @Param('id') propertyId: string,
+    @Query('key') key?: string,
   ) {
     const data = await this.PropertyService.findById(
       propertyId,
       request.user?._id,
+      key,
     );
     if (!data) {
       throw new NotFoundException('Property not found');
@@ -179,6 +183,25 @@ export class PropertyController {
       data,
       message: 'Property retrieved successfully',
     };
+  }
+
+  @Post(':id/private-link')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({
+    summary: 'New key for a private place link, old links stop working',
+  })
+  async resetPrivateLink(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') propertyId: string,
+  ) {
+    const privateKey = await this.PropertyService.resetPrivateKey(
+      propertyId,
+      request.user._id,
+    );
+    if (!privateKey) {
+      throw new NotFoundException('Private place not found');
+    }
+    return { private_key: privateKey };
   }
 
   @Patch(':id')
