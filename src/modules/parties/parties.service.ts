@@ -11,6 +11,7 @@ import { UploadApiResponse, v2 as cloudinary } from 'cloudinary';
 import { isValidObjectId, Model, Types } from 'mongoose';
 import { CreatePartyDto, PARTY_PUBLISH_FIELDS } from './dto/create-party.dto';
 import { assertPublishable } from '../listings/draft';
+import { NOT_PRIVATE } from '../listings/visibility';
 import {
   BACKFILL_PUBLISHED_AT,
   NEWEST_FIRST,
@@ -105,10 +106,11 @@ export class PartiesService implements OnModuleInit {
     this.logger.log(`Set auto-delete date on ${parties.length} older parties`);
   }
 
-  /** Published parties that haven't ended. */
+  /** Published, public parties that haven't ended. */
   private publicFilter() {
     return {
       status: { $ne: StatusType.DRAFT },
+      ...NOT_PRIVATE,
       $or: [{ expires_at: null }, { expires_at: { $gt: new Date() } }],
     };
   }

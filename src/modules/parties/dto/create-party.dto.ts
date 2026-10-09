@@ -14,6 +14,7 @@ import {
   Min,
 } from 'class-validator';
 import { RequiredUnlessDraft } from '../../listings/draft';
+import { Visibility } from '../../listings/visibility';
 import { ChargeType, StatusType } from '../schemas/party.schema';
 
 export class CreatePartyDto {
@@ -64,6 +65,11 @@ export class CreatePartyDto {
   })
   @IsEnum(StatusType)
   status!: StatusType;
+
+  @ApiPropertyOptional({ enum: Visibility, default: Visibility.PUBLIC })
+  @IsOptional()
+  @IsEnum(Visibility)
+  visibility?: Visibility;
 
   @ApiProperty({ example: 'No outside drinks. RSVP is required.' })
   @RequiredUnlessDraft()

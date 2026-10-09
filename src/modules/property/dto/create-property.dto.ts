@@ -12,6 +12,7 @@ import {
   Min,
 } from 'class-validator';
 import { RequiredUnlessDraft } from '../../listings/draft';
+import { Visibility } from '../../listings/visibility';
 import { ChargeType, SpaceType, StatusType } from '../schemas/property.schema';
 
 export class CreatePropertyDto {
@@ -64,6 +65,11 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsEnum(StatusType)
   status?: StatusType;
+
+  @ApiPropertyOptional({ enum: Visibility, default: Visibility.PUBLIC })
+  @IsOptional()
+  @IsEnum(Visibility)
+  visibility?: Visibility;
 
   @ApiPropertyOptional({ example: 'No outside drinks. RSVP is required.' })
   @IsOptional()
