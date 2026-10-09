@@ -5,11 +5,24 @@ import {
   HttpCode,
   HttpStatus,
   Get,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiResponse, ApiOperation } from '@nestjs/swagger';
+import { AuthGuard } from '@nestjs/passport';
+import {
+  ApiTags,
+  ApiResponse,
+  ApiOperation,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
+import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+
+interface AuthenticatedRequest extends Request {
+  user: { _id: string; email: string };
+}
 
 @ApiTags('auth')
 @Controller('auth')
@@ -113,5 +126,22 @@ export class AuthController {
   })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Swap a still valid token for a fresh 24h one' })
+  @ApiResponse({
+    status: 200,
+    description: 'New token',
+    schema: {
+      example: { accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Token missing or expired' })
+  refresh(@Req() request: AuthenticatedRequest) {
+    return this.authService.refresh(request.user);
   }
 }
