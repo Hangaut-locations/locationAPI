@@ -30,7 +30,7 @@ import { CreatePartyDto } from './dto/create-party.dto';
 import { UpdatePartyDto } from './dto/update-party.dto';
 import { PartiesService } from './parties.service';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard';
-import { PartyType, StatusType } from './schemas/party.schema';
+import { ChargeType, PartyType, StatusType } from './schemas/party.schema';
 
 interface AuthenticatedRequest extends Request {
   user: { _id: string };
@@ -57,7 +57,7 @@ export class PartiesController {
         location: { type: 'string' },
         images: { type: 'array', items: { type: 'string', format: 'binary' } },
         guest_capacity: { type: 'integer' },
-        charge_type: { type: 'string', enum: ['person', 'hour'] },
+        charge_type: { type: 'string', enum: Object.values(ChargeType) },
         party_rules: { type: 'string' },
         is_ticket_sales: { type: 'boolean' },
         price: { type: 'number' },

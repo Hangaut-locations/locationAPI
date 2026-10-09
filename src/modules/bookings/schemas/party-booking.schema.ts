@@ -19,6 +19,9 @@ export class PartyBooking extends Document {
   @Prop({ required: false, min: 1 })
   hours?: number;
 
+  @Prop({ required: false, min: 1 })
+  days?: number;
+
   @Prop({ required: true, min: 0 })
   total!: number;
 

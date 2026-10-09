@@ -6,6 +6,7 @@ import { Visibility } from '../../listings/visibility';
 export enum ChargeType {
   PERSON = 'person',
   HOUR = 'hour',
+  DAY = 'day',
 }
 
 export enum StatusType {
