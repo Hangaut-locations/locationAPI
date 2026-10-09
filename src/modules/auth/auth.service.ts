@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { Types } from 'mongoose';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -58,13 +59,7 @@ export class AuthService {
     });
 
     // Generate JWT token
-    const accessToken = this.jwtService.sign(
-      {
-        sub: newUser._id,
-        email: newUser.email,
-      },
-      { expiresIn: '24h' },
-    );
+    const accessToken = this.signToken(newUser._id, newUser.email);
 
     // Return token and user info (without password)
     const { password: _, ...userWithoutPassword } = newUser.toObject();
@@ -92,13 +87,7 @@ export class AuthService {
     }
 
     // Generate JWT token
-    const accessToken = this.jwtService.sign(
-      {
-        sub: user._id,
-        email: user.email,
-      },
-      { expiresIn: '24h' },
-    );
+    const accessToken = this.signToken(user._id, user.email);
 
     // Return token and user info (without password)
     const { password: _, ...userWithoutPassword } = user.toObject();
@@ -106,6 +95,20 @@ export class AuthService {
       accessToken,
       user: userWithoutPassword,
     };
+  }
+
+  // new 24h token for someone whose token is still valid, so active users stay logged in
+  refresh(user: { _id: Types.ObjectId | string; email: string }): {
+    accessToken: string;
+  } {
+    return { accessToken: this.signToken(user._id, user.email) };
+  }
+
+  private signToken(id: Types.ObjectId | string, email: string): string {
+    return this.jwtService.sign(
+      { sub: String(id), email },
+      { expiresIn: '24h' },
+    );
   }
 
   async validateUser(userId: string): Promise<Partial<User> | null> {
