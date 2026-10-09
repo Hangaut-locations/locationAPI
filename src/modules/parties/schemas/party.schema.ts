@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { requiredUnlessDraft } from '../../listings/draft';
+import { Visibility } from '../../listings/visibility';
 
 export enum ChargeType {
   PERSON = 'person',
@@ -59,6 +60,9 @@ export class Party extends Document {
 
   @Prop({ default: 'published', enum: Object.values(StatusType) })
   status!: StatusType;
+
+  @Prop({ default: Visibility.PUBLIC, enum: Object.values(Visibility) })
+  visibility!: Visibility;
 
   @Prop({
     type: [String],

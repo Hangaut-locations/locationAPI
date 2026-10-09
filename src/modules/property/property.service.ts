@@ -13,6 +13,7 @@ import {
   PROPERTY_PUBLISH_FIELDS,
 } from './dto/create-property.dto';
 import { assertPublishable } from '../listings/draft';
+import { NOT_PRIVATE } from '../listings/visibility';
 import {
   BACKFILL_PUBLISHED_AT,
   NEWEST_FIRST,
@@ -116,7 +117,7 @@ export class PropertyService implements OnModuleInit {
 
   async findAll(userId: string): Promise<PropertyWithFavorite[]> {
     const property = await this.propertyModel
-      .find({ status: StatusType.PUBLISHED })
+      .find({ status: StatusType.PUBLISHED, ...NOT_PRIVATE })
       .sort(NEWEST_FIRST)
       .lean()
       .exec();
@@ -145,7 +146,7 @@ export class PropertyService implements OnModuleInit {
   ): Promise<PropertyByLocation[]> {
     try {
       const properties = await this.propertyModel
-        .find({ status: StatusType.PUBLISHED })
+        .find({ status: StatusType.PUBLISHED, ...NOT_PRIVATE })
         .sort(NEWEST_FIRST)
         .lean();
 
