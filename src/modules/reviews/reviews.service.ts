@@ -192,6 +192,7 @@ export class ReviewsService {
           user: comment.userId,
           mine: sameId(comment.userId?._id, userId),
           replies: toThread(comment.replies ?? [], ownerId, userId),
+          canReply: !!userId,
         })),
       canReview: !!userId && !isOwner,
       // anyone logged in can join the conversation under a review
@@ -254,6 +255,7 @@ export class ReviewsService {
       user: saved.userId,
       mine: true,
       replies: [],
+      canReply: true,
     };
   }
 
