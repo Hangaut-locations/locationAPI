@@ -120,7 +120,10 @@ export const partyBookedMails = (
           { label: 'Group', value: people(booking.guests) },
         ],
         link: isBooker
-          ? { label: 'See your trips', url: `${siteUrl}/trips` }
+          ? {
+              label: 'See your trips',
+              url: `${siteUrl}/reservations?tab=trips`,
+            }
           : {
               label: 'See the party',
               url: `${siteUrl}/parties/${booking.partyId.toString()}`,
@@ -145,7 +148,10 @@ export const partyBookedMails = (
       { label: 'Total', value: money(booking.total) },
       ...noteRow(booking.note),
     ],
-    link: { label: 'Open reservations', url: `${siteUrl}/reservations` },
+    link: {
+      label: 'Open the guest list',
+      url: `${siteUrl}/check-in/${booking.partyId.toString()}`,
+    },
   };
 
   return [...guestMails, hostMail].map(buildMail);
@@ -183,7 +189,10 @@ export const partyCancelledMails = (
       heading: `${booker} cancelled their booking for ${booking.title}`,
       intro: `${plural(booking.guests, 'spot')} opened up again, and their codes won't work at the door anymore.`,
       rows: [...guestContact(guest), ...rows],
-      link: { label: 'Open reservations', url: `${siteUrl}/reservations` },
+      link: {
+        label: 'Open reservations',
+        url: `${siteUrl}/reservations?tab=hosting`,
+      },
     });
   }
   return mails.map(buildMail);
@@ -214,7 +223,10 @@ export const propertyBookedMails = (
         ...propertyRows(booking),
         ...noteRow(booking.note),
       ],
-      link: { label: 'Open reservations', url: `${siteUrl}/reservations` },
+      link: {
+        label: 'Open reservations',
+        url: `${siteUrl}/reservations?tab=hosting`,
+      },
     },
     {
       to: guest.email,
@@ -228,7 +240,10 @@ export const propertyBookedMails = (
         ? `We'll email you when ${host.firstName} accepts or declines it.`
         : `Hosted by ${fullName(host)}.`,
       rows: propertyRows(booking),
-      link: { label: 'See your trips', url: `${siteUrl}/trips` },
+      link: {
+        label: 'See your trips',
+        url: `${siteUrl}/reservations?tab=trips`,
+      },
     },
   ].map(buildMail);
 };
@@ -241,7 +256,10 @@ export const propertyStatusMails = (
   siteUrl: string,
 ): Mail[] => {
   const rows = propertyRows(booking);
-  const trips = { label: 'See your trips', url: `${siteUrl}/trips` };
+  const trips = {
+    label: 'See your trips',
+    url: `${siteUrl}/reservations?tab=trips`,
+  };
   const homes = { label: 'Find another place', url: `${siteUrl}/homes` };
   switch (booking.status) {
     case BookingStatus.CONFIRMED:
@@ -286,7 +304,7 @@ export const propertyStatusMails = (
               rows: [...guestContact(guest), ...rows],
               link: {
                 label: 'Open reservations',
-                url: `${siteUrl}/reservations`,
+                url: `${siteUrl}/reservations?tab=hosting`,
               },
             }),
       ];
