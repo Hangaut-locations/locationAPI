@@ -18,6 +18,13 @@ export class ListingComment extends Document {
   @Prop({ required: true, trim: true, maxlength: COMMENT_MAX_LENGTH })
   comment!: string;
 
+  // the host's answer, one per review
+  @Prop({ trim: true, maxlength: COMMENT_MAX_LENGTH })
+  reply?: string;
+
+  @Prop()
+  repliedAt?: Date;
+
   createdAt!: Date;
   updatedAt!: Date;
 }
