@@ -18,6 +18,7 @@ import {
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RefreshSessionDto } from './dto/refresh-session.dto';
 import { RegisterDto } from './dto/register.dto';
 
 interface AuthenticatedRequest extends Request {
@@ -143,5 +144,34 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Token missing or expired' })
   refresh(@Req() request: AuthenticatedRequest) {
     return this.authService.refresh(request.user);
+  }
+
+  @Post('session/refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Remember me: get a fresh 24h token with the refreshToken from login (works after the old token expired)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'New token, and the remember me login is pushed back 30 days',
+    schema: {
+      example: { accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'refreshToken unknown, expired or logged out',
+  })
+  refreshSession(@Body() body: RefreshSessionDto) {
+    return this.authService.refreshSession(body.refreshToken);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Remember me: end the login for this device' })
+  @ApiResponse({ status: 204, description: 'Logged out' })
+  async logout(@Body() body: RefreshSessionDto) {
+    await this.authService.logout(body.refreshToken);
   }
 }
