@@ -111,6 +111,10 @@ export class Property extends Document {
   @Prop({ required: false, min: 0 })
   bathrooms!: number;
 
+  // days the host isn't taking bookings, Nigeria dates like 2026-12-24
+  @Prop({ type: [String], default: [] })
+  blocked_dates!: string[];
+
   @Prop({ required: false, type: Date, index: true })
   published_at?: Date;
 

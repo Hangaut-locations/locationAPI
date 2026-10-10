@@ -46,6 +46,29 @@ export const nigeriaDateTime = (date: string, time: string): Date => {
   );
 };
 
+/** Nigeria calendar day of a moment, like "2026-10-20". */
+const nigeriaDate = (moment: Date) =>
+  new Date(moment.getTime() + NIGERIA_UTC_OFFSET_MS).toISOString().slice(0, 10);
+
+/** First blocked day a booking touches, a late booking can run past midnight. */
+const blockedDayIn = (blocked: string[], startAt: Date, endAt: Date) => {
+  if (!blocked.length) return undefined;
+  const lastDay = nigeriaDate(new Date(endAt.getTime() - 1));
+  for (let day = startAt; ; day = new Date(day.getTime() + DAY_MS)) {
+    const date = nigeriaDate(day);
+    if (blocked.includes(date)) return date;
+    if (date >= lastDay) return undefined;
+  }
+};
+
+const readableDate = (date: string) =>
+  new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+
 /** Start and end date both count, so a one-day party is 1. */
 export const partyLengthInDays = (
   startDate?: Date | string,
@@ -201,6 +224,18 @@ export class BookingsService {
       throw fieldError('date', 'Pick a time in the future');
     }
     const endAt = new Date(startAt.getTime() + bookingData.hours * HOUR_MS);
+
+    const blockedDay = blockedDayIn(
+      property.blocked_dates ?? [],
+      startAt,
+      endAt,
+    );
+    if (blockedDay) {
+      throw fieldError(
+        'date',
+        `The host isn't taking bookings on ${readableDate(blockedDay)}. Pick another day.`,
+      );
+    }
 
     await this.assertPropertyFree(property._id, startAt, endAt);
 
