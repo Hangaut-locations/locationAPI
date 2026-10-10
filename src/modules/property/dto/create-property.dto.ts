@@ -5,15 +5,33 @@ import {
   IsArray,
   IsEnum,
   IsInt,
+  IsISO8601,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Min,
 } from 'class-validator';
 import { RequiredUnlessDraft } from '../../listings/draft';
 import { Visibility } from '../../listings/visibility';
 import { ChargeType, SpaceType, StatusType } from '../schemas/property.schema';
+
+export const BLOCKED_DATES_MAX = 400;
+
+/** Form data sends lists as a JSON string (or one field per item). Sorted, no repeats. */
+const toDateList = (value: unknown) => {
+  let list: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      list = value.trim().startsWith('[') ? JSON.parse(value) : [value];
+    } catch {
+      return value;
+    }
+  }
+  if (!Array.isArray(list)) return list;
+  return [...new Set(list as unknown[])].sort();
+};
 
 export class CreatePropertyDto {
   @ApiProperty({ example: 'Summer rooftop property' })
@@ -124,6 +142,26 @@ export class CreatePropertyDto {
   @IsArray()
   @IsString({ each: true })
   amenities?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['2026-12-24', '2026-12-25'],
+    description:
+      "Days (Nigeria time) the place can't be booked. Send a JSON array string so an empty list clears them",
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => toDateList(value))
+  @IsArray()
+  @ArrayMaxSize(BLOCKED_DATES_MAX)
+  @IsISO8601(
+    { strict: true },
+    { each: true, message: 'Blocked dates must look like 2026-12-24' },
+  )
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    each: true,
+    message: 'Blocked dates must look like 2026-12-24',
+  })
+  blocked_dates?: string[];
 }
 
 export const PROPERTY_PUBLISH_FIELDS = [
