@@ -3,7 +3,7 @@ import { Document, Types } from 'mongoose';
 import { ListingType } from './listing-type';
 
 export const COMMENT_MAX_LENGTH = 1000;
-export const THREAD_MAX_REPLIES = 100;
+export const THREAD_MAX_REPLIES = 200;
 
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
 export class ReviewReply {

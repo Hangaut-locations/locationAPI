@@ -46,30 +46,25 @@ const sameId = (a: Id, b: Id) => !!a && !!b && a.toString() === b.toString();
 
 interface ThreadEntry {
   _id: Types.ObjectId;
-  userId: Types.ObjectId;
+  userId: ReviewPerson | null;
   text: string;
   createdAt: Date;
   editedAt?: Date;
 }
 
 const toThread = (replies: ThreadEntry[], hostId: Id, userId: Id) =>
-  replies.map((entry) => ({
-    _id: entry._id,
-    text: entry.text,
-    createdAt: entry.createdAt,
-    editedAt: entry.editedAt ?? null,
-    fromHost: sameId(entry.userId, hostId),
-    mine: sameId(entry.userId, userId),
-  }));
-
-const firstHostReply = (replies: ThreadEntry[], hostId: Id) =>
-  replies.find((entry) => sameId(entry.userId, hostId));
-
-// what the older site reads: just the host's first answer
-const toReply = (replies: ThreadEntry[], hostId: Id) => {
-  const first = firstHostReply(replies, hostId);
-  return first ? { text: first.text, createdAt: first.createdAt } : null;
-};
+  replies
+    // people who deleted their account come back as null
+    .filter((entry) => !!entry.userId)
+    .map((entry) => ({
+      _id: entry._id,
+      text: entry.text,
+      createdAt: entry.createdAt,
+      editedAt: entry.editedAt ?? null,
+      user: entry.userId,
+      fromHost: sameId(entry.userId?._id, hostId),
+      mine: sameId(entry.userId?._id, userId),
+    }));
 
 @Injectable()
 export class ReviewsService {
@@ -174,6 +169,7 @@ export class ReviewsService {
         .find(filter)
         .sort({ createdAt: -1 })
         .populate<{ userId: ReviewPerson | null }>('userId', PERSON_FIELDS)
+        .populate<{ replies: ThreadEntry[] }>('replies.userId', PERSON_FIELDS)
         .lean()
         .exec(),
     ]);
@@ -189,23 +185,17 @@ export class ReviewsService {
       likedBy,
       comments: comments
         .filter((comment) => !!comment.userId)
-        .map((comment) => {
-          const replies = comment.replies ?? [];
-          const mine = sameId(comment.userId?._id, userId);
-          return {
-            _id: comment._id,
-            comment: comment.comment,
-            createdAt: comment.createdAt,
-            user: comment.userId,
-            mine,
-            replies: toThread(replies, ownerId, userId),
-            // reviewer can answer once the host has said something
-            canReply: isOwner || (mine && !!firstHostReply(replies, ownerId)),
-            reply: toReply(replies, ownerId),
-          };
-        }),
+        .map((comment) => ({
+          _id: comment._id,
+          comment: comment.comment,
+          createdAt: comment.createdAt,
+          user: comment.userId,
+          mine: sameId(comment.userId?._id, userId),
+          replies: toThread(comment.replies ?? [], ownerId, userId),
+        })),
       canReview: !!userId && !isOwner,
-      canReply: isOwner,
+      // anyone logged in can join the conversation under a review
+      canReply: !!userId,
     };
   }
 
@@ -264,41 +254,34 @@ export class ReviewsService {
       user: saved.userId,
       mine: true,
       replies: [],
-      canReply: false,
-      reply: null,
     };
   }
 
-  /** The review plus who's who: only the listing's host and the reviewer get in. */
-  private async thread(commentId: string, userId: string) {
+  /** The review and its listing's host. Same rules as opening the listing (drafts, private key). */
+  private async thread(commentId: string, userId: string, key?: string) {
     const notFound = new NotFoundException('Review not found');
     if (!isValidObjectId(commentId)) throw notFound;
     const comment = await this.commentModel.findById(commentId).exec();
     if (!comment) throw notFound;
 
-    const listing =
-      comment.listingType === ListingType.PARTY
-        ? await this.partyModel
-            .findById(comment.listingId)
-            .select('ownerId')
-            .lean<OpenListing>()
-            .exec()
-        : await this.propertyModel
-            .findById(comment.listingId)
-            .select('ownerId')
-            .lean<OpenListing>()
-            .exec();
-    if (!listing) throw notFound;
+    const { ownerId } = await this.openListing(
+      comment.listingType,
+      comment.listingId.toString(),
+      userId,
+      key,
+    );
+    this.moveOldReply(comment, ownerId);
+    return { comment, hostId: ownerId };
+  }
 
-    const hostId = listing.ownerId;
-    this.moveOldReply(comment, hostId);
-    const isHost = sameId(hostId, userId);
-    if (!isHost && !sameId(comment.userId, userId)) {
-      throw new ForbiddenException(
-        'Only the host and whoever wrote the review can reply here',
-      );
-    }
-    return { comment, hostId, isHost };
+  private async threadOf(commentId: Types.ObjectId, hostId: Id, userId: Id) {
+    const fresh = await this.commentModel
+      .findById(commentId)
+      .select('replies')
+      .populate<{ replies: ThreadEntry[] }>('replies.userId', PERSON_FIELDS)
+      .lean()
+      .exec();
+    return { replies: toThread(fresh?.replies ?? [], hostId, userId) };
   }
 
   private threadEntry(
@@ -314,17 +297,19 @@ export class ReviewsService {
     return entry;
   }
 
-  async addThreadReply(commentId: string, userId: string, text: string) {
-    const { comment, hostId, isHost } = await this.thread(commentId, userId);
-    if (!isHost && !firstHostReply(comment.replies, hostId)) {
-      throw new BadRequestException('The host has to reply first');
-    }
+  async addThreadReply(
+    commentId: string,
+    userId: string,
+    text: string,
+    key?: string,
+  ) {
+    const { comment, hostId } = await this.thread(commentId, userId, key);
     if (comment.replies.length >= THREAD_MAX_REPLIES) {
       throw new BadRequestException('This conversation is full');
     }
     comment.replies.push({ userId: new Types.ObjectId(userId), text });
     await comment.save();
-    return { replies: toThread(comment.replies, hostId, userId) };
+    return this.threadOf(comment._id, hostId, userId);
   }
 
   async editThreadReply(
@@ -332,52 +317,26 @@ export class ReviewsService {
     replyId: string,
     userId: string,
     text: string,
+    key?: string,
   ) {
-    const { comment, hostId } = await this.thread(commentId, userId);
+    const { comment, hostId } = await this.thread(commentId, userId, key);
     const entry = this.threadEntry(comment, replyId, userId);
     entry.text = text;
     entry.editedAt = new Date();
     await comment.save();
-    return { replies: toThread(comment.replies, hostId, userId) };
+    return this.threadOf(comment._id, hostId, userId);
   }
 
-  async deleteThreadReply(commentId: string, replyId: string, userId: string) {
-    const { comment, hostId } = await this.thread(commentId, userId);
+  async deleteThreadReply(
+    commentId: string,
+    replyId: string,
+    userId: string,
+    key?: string,
+  ) {
+    const { comment, hostId } = await this.thread(commentId, userId, key);
     this.threadEntry(comment, replyId, userId).deleteOne();
     await comment.save();
-    return { replies: toThread(comment.replies, hostId, userId) };
-  }
-
-  /** Older site: one host reply, sending again edits it. */
-  private async hostThread(commentId: string, userId: string) {
-    const found = await this.thread(commentId, userId);
-    if (!found.isHost) {
-      throw new ForbiddenException(
-        `Only the host can reply to reviews on this ${NAMES[found.comment.listingType]}`,
-      );
-    }
-    return found;
-  }
-
-  async setReply(commentId: string, userId: string, reply: string) {
-    const { comment, hostId } = await this.hostThread(commentId, userId);
-    const first = firstHostReply(comment.replies, hostId);
-    if (first) {
-      first.text = reply;
-      first.editedAt = new Date();
-    } else {
-      comment.replies.push({ userId: new Types.ObjectId(userId), text: reply });
-    }
-    await comment.save();
-    return { reply: toReply(comment.replies, hostId) };
-  }
-
-  async deleteReply(commentId: string, userId: string) {
-    const { comment, hostId } = await this.hostThread(commentId, userId);
-    const first = firstHostReply(comment.replies, hostId);
-    if (first) comment.replies.pull(first._id);
-    await comment.save();
-    return { reply: toReply(comment.replies, hostId) };
+    return this.threadOf(comment._id, hostId, userId);
   }
 
   async deleteComment(commentId: string, userId: string) {
