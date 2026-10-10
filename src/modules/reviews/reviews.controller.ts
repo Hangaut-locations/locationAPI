@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseEnumPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -20,7 +21,12 @@ import {
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard';
-import { CreateCommentDto, LikeListingDto, ReplyDto } from './dto/review.dto';
+import {
+  CreateCommentDto,
+  LikeListingDto,
+  ReplyDto,
+  ThreadReplyDto,
+} from './dto/review.dto';
 import { ReviewsService } from './reviews.service';
 import { ListingType } from './schemas/listing-type';
 
@@ -103,6 +109,56 @@ export class ReviewsController {
     @Param('commentId') commentId: string,
   ) {
     return this.reviewsService.deleteComment(commentId, request.user._id);
+  }
+
+  @Post('comments/:commentId/replies')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({
+    summary:
+      'Reply under a review. Host of the listing any time, the reviewer once the host has replied',
+  })
+  addThreadReply(
+    @Req() request: AuthenticatedRequest,
+    @Param('commentId') commentId: string,
+    @Body() { text }: ThreadReplyDto,
+  ) {
+    return this.reviewsService.addThreadReply(
+      commentId,
+      request.user._id,
+      text,
+    );
+  }
+
+  @Patch('comments/:commentId/replies/:replyId')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Edit my reply under a review' })
+  editThreadReply(
+    @Req() request: AuthenticatedRequest,
+    @Param('commentId') commentId: string,
+    @Param('replyId') replyId: string,
+    @Body() { text }: ThreadReplyDto,
+  ) {
+    return this.reviewsService.editThreadReply(
+      commentId,
+      replyId,
+      request.user._id,
+      text,
+    );
+  }
+
+  @Delete('comments/:commentId/replies/:replyId')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Delete my reply under a review' })
+  deleteThreadReply(
+    @Req() request: AuthenticatedRequest,
+    @Param('commentId') commentId: string,
+    @Param('replyId') replyId: string,
+  ) {
+    return this.reviewsService.deleteThreadReply(
+      commentId,
+      replyId,
+      request.user._id,
+    );
   }
 
   @Put('comments/:commentId/reply')
