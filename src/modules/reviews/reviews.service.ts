@@ -5,11 +5,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { isValidObjectId, Model, Types } from 'mongoose';
+import { HydratedDocument, isValidObjectId, Model, Types } from 'mongoose';
 import { canOpenListing } from '../listings/visibility';
 import { Party } from '../parties/schemas/party.schema';
 import { Property } from '../property/schemas/property.schema';
-import { ListingComment } from './schemas/listing-comment.schema';
+import {
+  ListingComment,
+  THREAD_MAX_REPLIES,
+} from './schemas/listing-comment.schema';
 import { ListingLike } from './schemas/listing-like.schema';
 import { ListingType } from './schemas/listing-type';
 
@@ -41,8 +44,32 @@ type Id = Types.ObjectId | string | undefined;
 
 const sameId = (a: Id, b: Id) => !!a && !!b && a.toString() === b.toString();
 
-const toReply = (comment: { reply?: string; repliedAt?: Date }) =>
-  comment.reply ? { text: comment.reply, createdAt: comment.repliedAt } : null;
+interface ThreadEntry {
+  _id: Types.ObjectId;
+  userId: Types.ObjectId;
+  text: string;
+  createdAt: Date;
+  editedAt?: Date;
+}
+
+const toThread = (replies: ThreadEntry[], hostId: Id, userId: Id) =>
+  replies.map((entry) => ({
+    _id: entry._id,
+    text: entry.text,
+    createdAt: entry.createdAt,
+    editedAt: entry.editedAt ?? null,
+    fromHost: sameId(entry.userId, hostId),
+    mine: sameId(entry.userId, userId),
+  }));
+
+const firstHostReply = (replies: ThreadEntry[], hostId: Id) =>
+  replies.find((entry) => sameId(entry.userId, hostId));
+
+// what the older site reads: just the host's first answer
+const toReply = (replies: ThreadEntry[], hostId: Id) => {
+  const first = firstHostReply(replies, hostId);
+  return first ? { text: first.text, createdAt: first.createdAt } : null;
+};
 
 @Injectable()
 export class ReviewsService {
@@ -88,8 +115,21 @@ export class ReviewsService {
     }
     return {
       isOwner,
+      ownerId: listing.ownerId,
       filter: { listingType: type, listingId: new Types.ObjectId(listingId) },
     };
+  }
+
+  /** Reviews from before threads had a single `reply` field, move it in as the host's first message. */
+  private moveOldReply(comment: HydratedDocument<ListingComment>, hostId: Id) {
+    if (!comment.reply || !hostId) return;
+    comment.replies.unshift({
+      userId: new Types.ObjectId(hostId.toString()),
+      text: comment.reply,
+      createdAt: comment.repliedAt ?? comment.updatedAt,
+    });
+    comment.reply = undefined;
+    comment.repliedAt = undefined;
   }
 
   private assertNotOwner(type: ListingType, isOwner: boolean, action: string) {
@@ -106,11 +146,21 @@ export class ReviewsService {
     userId?: string,
     key?: string,
   ) {
-    const { isOwner, filter } = await this.openListing(
+    const { isOwner, ownerId, filter } = await this.openListing(
       type,
       listingId,
       userId,
       key,
+    );
+
+    const oldReplies = await this.commentModel
+      .find({ ...filter, reply: { $exists: true } })
+      .exec();
+    await Promise.all(
+      oldReplies.map((comment) => {
+        this.moveOldReply(comment, ownerId);
+        return comment.save();
+      }),
     );
 
     const [likes, comments] = await Promise.all([
@@ -139,14 +189,21 @@ export class ReviewsService {
       likedBy,
       comments: comments
         .filter((comment) => !!comment.userId)
-        .map((comment) => ({
-          _id: comment._id,
-          comment: comment.comment,
-          createdAt: comment.createdAt,
-          user: comment.userId,
-          mine: sameId(comment.userId?._id, userId),
-          reply: toReply(comment),
-        })),
+        .map((comment) => {
+          const replies = comment.replies ?? [];
+          const mine = sameId(comment.userId?._id, userId);
+          return {
+            _id: comment._id,
+            comment: comment.comment,
+            createdAt: comment.createdAt,
+            user: comment.userId,
+            mine,
+            replies: toThread(replies, ownerId, userId),
+            // reviewer can answer once the host has said something
+            canReply: isOwner || (mine && !!firstHostReply(replies, ownerId)),
+            reply: toReply(replies, ownerId),
+          };
+        }),
       canReview: !!userId && !isOwner,
       canReply: isOwner,
     };
@@ -206,12 +263,14 @@ export class ReviewsService {
       createdAt: saved.createdAt,
       user: saved.userId,
       mine: true,
+      replies: [],
+      canReply: false,
       reply: null,
     };
   }
 
-  /** Only the host of the listing the review is on. */
-  private async commentForHost(commentId: string, userId: string) {
+  /** The review plus who's who: only the listing's host and the reviewer get in. */
+  private async thread(commentId: string, userId: string) {
     const notFound = new NotFoundException('Review not found');
     if (!isValidObjectId(commentId)) throw notFound;
     const comment = await this.commentModel.findById(commentId).exec();
@@ -230,28 +289,95 @@ export class ReviewsService {
             .lean<OpenListing>()
             .exec();
     if (!listing) throw notFound;
-    if (!sameId(listing.ownerId, userId)) {
+
+    const hostId = listing.ownerId;
+    this.moveOldReply(comment, hostId);
+    const isHost = sameId(hostId, userId);
+    if (!isHost && !sameId(comment.userId, userId)) {
       throw new ForbiddenException(
-        `Only the host can reply to reviews on this ${NAMES[comment.listingType]}`,
+        'Only the host and whoever wrote the review can reply here',
       );
     }
-    return comment;
+    return { comment, hostId, isHost };
+  }
+
+  private threadEntry(
+    comment: HydratedDocument<ListingComment>,
+    replyId: string,
+    userId: string,
+  ) {
+    const entry = isValidObjectId(replyId) ? comment.replies.id(replyId) : null;
+    if (!entry) throw new NotFoundException('Reply not found');
+    if (!sameId(entry.userId, userId)) {
+      throw new ForbiddenException('You can only change your own replies');
+    }
+    return entry;
+  }
+
+  async addThreadReply(commentId: string, userId: string, text: string) {
+    const { comment, hostId, isHost } = await this.thread(commentId, userId);
+    if (!isHost && !firstHostReply(comment.replies, hostId)) {
+      throw new BadRequestException('The host has to reply first');
+    }
+    if (comment.replies.length >= THREAD_MAX_REPLIES) {
+      throw new BadRequestException('This conversation is full');
+    }
+    comment.replies.push({ userId: new Types.ObjectId(userId), text });
+    await comment.save();
+    return { replies: toThread(comment.replies, hostId, userId) };
+  }
+
+  async editThreadReply(
+    commentId: string,
+    replyId: string,
+    userId: string,
+    text: string,
+  ) {
+    const { comment, hostId } = await this.thread(commentId, userId);
+    const entry = this.threadEntry(comment, replyId, userId);
+    entry.text = text;
+    entry.editedAt = new Date();
+    await comment.save();
+    return { replies: toThread(comment.replies, hostId, userId) };
+  }
+
+  async deleteThreadReply(commentId: string, replyId: string, userId: string) {
+    const { comment, hostId } = await this.thread(commentId, userId);
+    this.threadEntry(comment, replyId, userId).deleteOne();
+    await comment.save();
+    return { replies: toThread(comment.replies, hostId, userId) };
+  }
+
+  /** Older site: one host reply, sending again edits it. */
+  private async hostThread(commentId: string, userId: string) {
+    const found = await this.thread(commentId, userId);
+    if (!found.isHost) {
+      throw new ForbiddenException(
+        `Only the host can reply to reviews on this ${NAMES[found.comment.listingType]}`,
+      );
+    }
+    return found;
   }
 
   async setReply(commentId: string, userId: string, reply: string) {
-    const comment = await this.commentForHost(commentId, userId);
-    comment.reply = reply;
-    comment.repliedAt = new Date();
+    const { comment, hostId } = await this.hostThread(commentId, userId);
+    const first = firstHostReply(comment.replies, hostId);
+    if (first) {
+      first.text = reply;
+      first.editedAt = new Date();
+    } else {
+      comment.replies.push({ userId: new Types.ObjectId(userId), text: reply });
+    }
     await comment.save();
-    return { reply: toReply(comment) };
+    return { reply: toReply(comment.replies, hostId) };
   }
 
   async deleteReply(commentId: string, userId: string) {
-    const comment = await this.commentForHost(commentId, userId);
-    comment.reply = undefined;
-    comment.repliedAt = undefined;
+    const { comment, hostId } = await this.hostThread(commentId, userId);
+    const first = firstHostReply(comment.replies, hostId);
+    if (first) comment.replies.pull(first._id);
     await comment.save();
-    return { reply: null };
+    return { reply: toReply(comment.replies, hostId) };
   }
 
   async deleteComment(commentId: string, userId: string) {

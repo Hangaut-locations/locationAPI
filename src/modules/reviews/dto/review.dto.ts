@@ -34,3 +34,14 @@ export class ReplyDto {
   @MaxLength(COMMENT_MAX_LENGTH)
   reply!: string;
 }
+
+export class ThreadReplyDto {
+  @ApiProperty({ example: 'Thanks for coming, see you next time!' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @IsNotEmpty({ message: 'Write something first' })
+  @MaxLength(COMMENT_MAX_LENGTH)
+  text!: string;
+}
