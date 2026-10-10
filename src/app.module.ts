@@ -11,6 +11,7 @@ import { FavoritesModule } from './modules/favorites/favorites.module';
 import { PropertyModule } from './modules/property/property.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
+import { MailModule } from './modules/mail/mail.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
       validationSchema,
     }),
     DatabaseModule,
+    MailModule,
     AuthModule,
     UsersModule,
     PartiesModule,

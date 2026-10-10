@@ -2,6 +2,24 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { BookingStatus } from './booking-status';
 
+/** One spot at the party. The code gets someone in once. */
+@Schema({ _id: false })
+export class Ticket {
+  @Prop({ required: true, trim: true })
+  name!: string;
+
+  @Prop({ required: true, trim: true, lowercase: true })
+  email!: string;
+
+  @Prop({ required: true })
+  code!: string;
+
+  @Prop({ type: Date })
+  checked_in_at?: Date;
+}
+
+const TicketSchema = SchemaFactory.createForClass(Ticket);
+
 @Schema({ timestamps: true, collection: 'party_bookings' })
 export class PartyBooking extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Party', required: true, index: true })
@@ -34,6 +52,10 @@ export class PartyBooking extends Document {
   @Prop({ required: false, trim: true })
   note?: string;
 
+  // Bookings from before codes have none.
+  @Prop({ type: [TicketSchema], default: [] })
+  tickets!: Ticket[];
+
   // Copy of the party when it was booked. Parties are deleted after they end.
   @Prop({ trim: true })
   title!: string;
@@ -64,3 +86,11 @@ export class PartyBooking extends Document {
 }
 
 export const PartyBookingSchema = SchemaFactory.createForClass(PartyBooking);
+
+PartyBookingSchema.index(
+  { 'tickets.code': 1 },
+  {
+    unique: true,
+    partialFilterExpression: { 'tickets.code': { $exists: true } },
+  },
+);

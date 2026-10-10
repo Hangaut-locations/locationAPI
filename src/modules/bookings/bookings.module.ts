@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Party, PartySchema } from '../parties/schemas/party.schema';
 import { Property, PropertySchema } from '../property/schemas/property.schema';
+import { User, UserSchema } from '../users/schemas/user.schema';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import {
@@ -20,6 +21,7 @@ import {
       { name: PropertyBooking.name, schema: PropertyBookingSchema },
       { name: Party.name, schema: PartySchema },
       { name: Property.name, schema: PropertySchema },
+      { name: User.name, schema: UserSchema },
     ]),
   ],
   controllers: [BookingsController],

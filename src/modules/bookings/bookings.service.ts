@@ -3,11 +3,24 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
+import { randomInt } from 'crypto';
 import { isValidObjectId, Model, Types } from 'mongoose';
 import { canOpenListing } from '../listings/visibility';
+import { Mail, MailService } from '../mail/mail.service';
+import { User } from '../users/schemas/user.schema';
+import {
+  fullName,
+  partyBookedMails,
+  partyCancelledMails,
+  Person,
+  propertyBookedMails,
+  propertyStatusMails,
+} from './booking-mails';
 import { partyExpiry } from '../parties/parties.service';
 import {
   ChargeType,
@@ -22,7 +35,7 @@ import {
 import { CreatePartyBookingDto } from './dto/create-party-booking.dto';
 import { CreatePropertyBookingDto } from './dto/create-property-booking.dto';
 import { ACTIVE_STATUSES, BookingStatus } from './schemas/booking-status';
-import { PartyBooking } from './schemas/party-booking.schema';
+import { PartyBooking, Ticket } from './schemas/party-booking.schema';
 import { PropertyBooking } from './schemas/property-booking.schema';
 
 /** Nigeria (WAT) is UTC+1 all year. */
@@ -30,6 +43,35 @@ const NIGERIA_UTC_OFFSET_MS = 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const GUEST_FIELDS = 'firstName lastName email phone';
+
+// No 0/O or 1/I/L, so codes read out at the door don't get mixed up.
+const CODE_LETTERS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+/** Like "K7M2-QX9P". */
+const newCode = () => {
+  const chars = Array.from(
+    { length: 8 },
+    () => CODE_LETTERS[randomInt(CODE_LETTERS.length)],
+  ).join('');
+  return `${chars.slice(0, 4)}-${chars.slice(4)}`;
+};
+
+/** Hosts can type "k7m2 qx9p" or "K7M2QX9P". */
+const cleanCode = (code: string) => {
+  const chars = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return chars.length === 8 ? `${chars.slice(0, 4)}-${chars.slice(4)}` : chars;
+};
+
+const bookerName = (guest: Person | null) =>
+  guest ? fullName(guest) : 'Deleted account';
+
+const clockAt = (date: Date) =>
+  date.toLocaleTimeString('en-GB', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Africa/Lagos',
+  });
 
 /** "2026-10-20" + "14:00" in Nigeria time. */
 export const nigeriaDateTime = (date: string, time: string): Date => {
@@ -92,6 +134,8 @@ type Booking = PartyBooking | PropertyBooking;
 
 @Injectable()
 export class BookingsService {
+  private readonly logger = new Logger(BookingsService.name);
+
   constructor(
     @InjectModel(PartyBooking.name)
     private partyBookingModel: Model<PartyBooking>,
@@ -99,7 +143,39 @@ export class BookingsService {
     private propertyBookingModel: Model<PropertyBooking>,
     @InjectModel(Party.name) private partyModel: Model<Party>,
     @InjectModel(Property.name) private propertyModel: Model<Property>,
+    @InjectModel(User.name) private userModel: Model<User>,
+    private mailService: MailService,
+    private configService: ConfigService,
   ) {}
+
+  private get siteUrl() {
+    return this.configService.get<string>('SITE_URL') ?? '';
+  }
+
+  private findPerson(id: Types.ObjectId | string) {
+    return this.userModel
+      .findById(id)
+      .select('firstName lastName email phone')
+      .lean<Person>()
+      .exec();
+  }
+
+  /** Sends in the background, the booking already went through. */
+  private notify(
+    booking: { guestId: Types.ObjectId; hostId: Types.ObjectId },
+    build: (guest: Person, host: Person) => Mail[],
+  ) {
+    void Promise.all([
+      this.findPerson(booking.guestId),
+      this.findPerson(booking.hostId),
+    ])
+      .then(([guest, host]) =>
+        guest && host
+          ? this.mailService.sendAll(build(guest, host))
+          : undefined,
+      )
+      .catch((error) => this.logger.error('Booking emails failed', error));
+  }
 
   async bookParty(
     guestId: string,
@@ -164,8 +240,29 @@ export class BookingsService {
       );
     }
 
+    const friends = bookingData.friends ?? [];
+    if (friends.length > bookingData.guests - 1) {
+      throw fieldError(
+        'friends',
+        bookingData.guests === 1
+          ? "You're only booking for yourself, so there's no friend to add"
+          : `You're booking for ${bookingData.guests}, so add up to ${bookingData.guests - 1} friends`,
+      );
+    }
+    const guest = await this.findPerson(guestId);
+    if (!guest) throw new NotFoundException('User not found');
+    const booker = fullName(guest);
+    const tickets: Ticket[] = [
+      { name: booker, email: guest.email, code: newCode() },
+      ...Array.from({ length: bookingData.guests - 1 }, (_, index) => ({
+        name: friends[index]?.name ?? `${booker} +${index + 1}`,
+        email: friends[index]?.email ?? guest.email,
+        code: newCode(),
+      })),
+    ];
+
     const price = party.price ?? 0;
-    return new this.partyBookingModel({
+    const booking = await new this.partyBookingModel({
       partyId: party._id,
       guestId: new Types.ObjectId(guestId),
       hostId: party.ownerId,
@@ -179,6 +276,7 @@ export class BookingsService {
           : price * bookingData.guests,
       status: BookingStatus.CONFIRMED,
       note: bookingData.note,
+      tickets,
       title: party.title,
       image: party.images?.[0],
       location: party.location,
@@ -188,6 +286,11 @@ export class BookingsService {
       charge_type: party.charge_type,
       price,
     }).save();
+
+    this.notify(booking, (guest, host) =>
+      partyBookedMails(booking, guest, host, this.siteUrl),
+    );
+    return booking;
   }
 
   async bookProperty(
@@ -253,7 +356,7 @@ export class BookingsService {
     }
 
     const price = property.price ?? 0;
-    return new this.propertyBookingModel({
+    const booking = await new this.propertyBookingModel({
       propertyId: property._id,
       guestId: new Types.ObjectId(guestId),
       hostId: property.ownerId,
@@ -276,6 +379,11 @@ export class BookingsService {
       charge_type: property.charge_type,
       price,
     }).save();
+
+    this.notify(booking, (guest, host) =>
+      propertyBookedMails(booking, guest, host, this.siteUrl),
+    );
+    return booking;
   }
 
   /** Upcoming confirmed times for a property, without any guest details. */
@@ -311,8 +419,10 @@ export class BookingsService {
   async reservations(hostId: string) {
     const filter = { hostId: new Types.ObjectId(hostId) };
     const [parties, properties] = await Promise.all([
+      // Codes stay with the guests, the host checks them in by typing them.
       this.partyBookingModel
         .find(filter)
+        .select('-tickets.code')
         .populate('guestId', GUEST_FIELDS)
         .sort({ createdAt: -1 })
         .lean()
@@ -340,7 +450,13 @@ export class BookingsService {
     this.assertStatusChange(booking, userId, status, hasEnded);
 
     booking.status = status;
-    return booking.save();
+    await booking.save();
+
+    const byHost = booking.hostId.toString() === userId.toString();
+    this.notify(booking, (guest, host) =>
+      partyCancelledMails(booking, guest, host, byHost, this.siteUrl),
+    );
+    return booking;
   }
 
   async updatePropertyBookingStatus(
@@ -369,20 +485,133 @@ export class BookingsService {
     booking.status = status;
     await booking.save();
 
+    const byHost = booking.hostId.toString() === userId.toString();
+    this.notify(booking, (guest, host) =>
+      propertyStatusMails(booking, guest, host, byHost, this.siteUrl),
+    );
+
     if (status === BookingStatus.CONFIRMED) {
       // Other requests for the same time can't happen anymore.
-      await this.propertyBookingModel.updateMany(
-        {
+      const clashing = await this.propertyBookingModel
+        .find({
           _id: { $ne: booking._id },
           propertyId: booking.propertyId,
           status: BookingStatus.PENDING,
           start_at: { $lt: booking.end_at },
           end_at: { $gt: booking.start_at },
-        },
-        { status: BookingStatus.DECLINED },
-      );
+        })
+        .exec();
+      for (const request of clashing) {
+        request.status = BookingStatus.DECLINED;
+        await request.save();
+        this.notify(request, (guest, host) =>
+          propertyStatusMails(request, guest, host, true, this.siteUrl),
+        );
+      }
     }
     return booking;
+  }
+
+  /** Host types a guest's code at the door. Each code works once. */
+  async checkIn(hostId: string, rawCode: string) {
+    const code = cleanCode(rawCode);
+    const booking = await this.partyBookingModel
+      .findOne({ hostId: new Types.ObjectId(hostId), 'tickets.code': code })
+      .populate<{ guestId: Person }>('guestId', GUEST_FIELDS)
+      .exec();
+    if (!booking) {
+      throw new NotFoundException(
+        "That code doesn't match anyone booked on your parties",
+      );
+    }
+    if (booking.status !== BookingStatus.CONFIRMED) {
+      throw new BadRequestException(
+        `This booking was ${booking.status}, so the code doesn't work anymore`,
+      );
+    }
+    if (booking.end_date && partyExpiry(booking.end_date) <= new Date()) {
+      throw new BadRequestException('This party has already ended');
+    }
+
+    const checkedInAt = new Date();
+    const updated = await this.partyBookingModel
+      .findOneAndUpdate(
+        {
+          _id: booking._id,
+          tickets: { $elemMatch: { code, checked_in_at: null } },
+        },
+        { $set: { 'tickets.$.checked_in_at': checkedInAt } },
+        { new: true },
+      )
+      .lean()
+      .exec();
+    const ticket = (updated ?? booking).tickets.find(
+      (item) => item.code === code,
+    ) as Ticket;
+    if (!updated) {
+      throw new ConflictException(
+        `Already checked in at ${clockAt(ticket.checked_in_at ?? checkedInAt)} (${ticket.name})`,
+      );
+    }
+
+    return {
+      name: ticket.name,
+      booked_by: bookerName(booking.guestId),
+      party: booking.title,
+      group: booking.guests,
+      group_checked_in: updated.tickets.filter((item) => item.checked_in_at)
+        .length,
+      checked_in_at: checkedInAt,
+    };
+  }
+
+  /** Everyone coming to a party, for the host's door list. No codes. */
+  async partyGuests(hostId: string, partyId: string) {
+    if (!isValidObjectId(partyId))
+      throw new NotFoundException('Party not found');
+    const filter = {
+      partyId: new Types.ObjectId(partyId),
+      hostId: new Types.ObjectId(hostId),
+      status: BookingStatus.CONFIRMED,
+    };
+    const [party, bookings] = await Promise.all([
+      this.partyModel
+        .findOne({ _id: filter.partyId, ownerId: filter.hostId })
+        .select('title')
+        .lean()
+        .exec(),
+      this.partyBookingModel
+        .find(filter)
+        .populate<{ guestId: Person }>('guestId', GUEST_FIELDS)
+        .sort({ createdAt: 1 })
+        .lean()
+        .exec(),
+    ]);
+    if (!party && !bookings.length) {
+      throw new NotFoundException('Party not found');
+    }
+
+    const guests = bookings.flatMap((booking) =>
+      booking.tickets.map((ticket) => ({
+        name: ticket.name,
+        booked_by: bookerName(booking.guestId),
+        booking_id: booking._id,
+        checked_in_at: ticket.checked_in_at ?? null,
+      })),
+    );
+    return {
+      title: party?.title ?? bookings[0].title,
+      spots: bookings.reduce((sum, booking) => sum + booking.guests, 0),
+      checked_in: guests.filter((guest) => guest.checked_in_at).length,
+      guests,
+      // Booked before codes, the host checks these by name.
+      without_codes: bookings
+        .filter((booking) => !booking.tickets.length)
+        .map((booking) => ({
+          booked_by: bookerName(booking.guestId),
+          spots: booking.guests,
+        })),
+    };
   }
 
   private async assertPropertyFree(
