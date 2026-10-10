@@ -24,18 +24,7 @@ export class CreateCommentDto extends LikeListingDto {
   comment!: string;
 }
 
-export class ReplyDto {
-  @ApiProperty({ example: 'Thanks for coming, see you next time!' })
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim() : value,
-  )
-  @IsString()
-  @IsNotEmpty({ message: 'Write something first' })
-  @MaxLength(COMMENT_MAX_LENGTH)
-  reply!: string;
-}
-
-export class ThreadReplyDto {
+export class ThreadReplyDto extends LikeListingDto {
   @ApiProperty({ example: 'Thanks for coming, see you next time!' })
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,

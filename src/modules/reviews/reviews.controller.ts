@@ -7,7 +7,6 @@ import {
   ParseEnumPipe,
   Patch,
   Post,
-  Put,
   Query,
   Req,
   UseGuards,
@@ -24,7 +23,6 @@ import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard';
 import {
   CreateCommentDto,
   LikeListingDto,
-  ReplyDto,
   ThreadReplyDto,
 } from './dto/review.dto';
 import { ReviewsService } from './reviews.service';
@@ -115,17 +113,18 @@ export class ReviewsController {
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({
     summary:
-      'Reply under a review. Host of the listing any time, the reviewer once the host has replied',
+      'Reply under a review, anyone logged in. Private listings need the key',
   })
   addThreadReply(
     @Req() request: AuthenticatedRequest,
     @Param('commentId') commentId: string,
-    @Body() { text }: ThreadReplyDto,
+    @Body() { text, key }: ThreadReplyDto,
   ) {
     return this.reviewsService.addThreadReply(
       commentId,
       request.user._id,
       text,
+      key,
     );
   }
 
@@ -136,13 +135,14 @@ export class ReviewsController {
     @Req() request: AuthenticatedRequest,
     @Param('commentId') commentId: string,
     @Param('replyId') replyId: string,
-    @Body() { text }: ThreadReplyDto,
+    @Body() { text, key }: ThreadReplyDto,
   ) {
     return this.reviewsService.editThreadReply(
       commentId,
       replyId,
       request.user._id,
       text,
+      key,
     );
   }
 
@@ -153,35 +153,13 @@ export class ReviewsController {
     @Req() request: AuthenticatedRequest,
     @Param('commentId') commentId: string,
     @Param('replyId') replyId: string,
+    @Query('key') key?: string,
   ) {
     return this.reviewsService.deleteThreadReply(
       commentId,
       replyId,
       request.user._id,
+      key,
     );
-  }
-
-  @Put('comments/:commentId/reply')
-  @UseGuards(AuthGuard('jwt'))
-  @ApiOperation({
-    summary:
-      'Host only: reply to a review on your listing (sending again edits it)',
-  })
-  setReply(
-    @Req() request: AuthenticatedRequest,
-    @Param('commentId') commentId: string,
-    @Body() { reply }: ReplyDto,
-  ) {
-    return this.reviewsService.setReply(commentId, request.user._id, reply);
-  }
-
-  @Delete('comments/:commentId/reply')
-  @UseGuards(AuthGuard('jwt'))
-  @ApiOperation({ summary: 'Host only: remove your reply' })
-  deleteReply(
-    @Req() request: AuthenticatedRequest,
-    @Param('commentId') commentId: string,
-  ) {
-    return this.reviewsService.deleteReply(commentId, request.user._id);
   }
 }
