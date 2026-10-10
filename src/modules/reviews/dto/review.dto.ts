@@ -23,3 +23,14 @@ export class CreateCommentDto extends LikeListingDto {
   @MaxLength(COMMENT_MAX_LENGTH)
   comment!: string;
 }
+
+export class ReplyDto {
+  @ApiProperty({ example: 'Thanks for coming, see you next time!' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @IsNotEmpty({ message: 'Write something first' })
+  @MaxLength(COMMENT_MAX_LENGTH)
+  reply!: string;
+}

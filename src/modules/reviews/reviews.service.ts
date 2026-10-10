@@ -41,6 +41,9 @@ type Id = Types.ObjectId | string | undefined;
 
 const sameId = (a: Id, b: Id) => !!a && !!b && a.toString() === b.toString();
 
+const toReply = (comment: { reply?: string; repliedAt?: Date }) =>
+  comment.reply ? { text: comment.reply, createdAt: comment.repliedAt } : null;
+
 @Injectable()
 export class ReviewsService {
   constructor(
@@ -142,8 +145,10 @@ export class ReviewsService {
           createdAt: comment.createdAt,
           user: comment.userId,
           mine: sameId(comment.userId?._id, userId),
+          reply: toReply(comment),
         })),
       canReview: !!userId && !isOwner,
+      canReply: isOwner,
     };
   }
 
@@ -201,7 +206,52 @@ export class ReviewsService {
       createdAt: saved.createdAt,
       user: saved.userId,
       mine: true,
+      reply: null,
     };
+  }
+
+  /** Only the host of the listing the review is on. */
+  private async commentForHost(commentId: string, userId: string) {
+    const notFound = new NotFoundException('Review not found');
+    if (!isValidObjectId(commentId)) throw notFound;
+    const comment = await this.commentModel.findById(commentId).exec();
+    if (!comment) throw notFound;
+
+    const listing =
+      comment.listingType === ListingType.PARTY
+        ? await this.partyModel
+            .findById(comment.listingId)
+            .select('ownerId')
+            .lean<OpenListing>()
+            .exec()
+        : await this.propertyModel
+            .findById(comment.listingId)
+            .select('ownerId')
+            .lean<OpenListing>()
+            .exec();
+    if (!listing) throw notFound;
+    if (!sameId(listing.ownerId, userId)) {
+      throw new ForbiddenException(
+        `Only the host can reply to reviews on this ${NAMES[comment.listingType]}`,
+      );
+    }
+    return comment;
+  }
+
+  async setReply(commentId: string, userId: string, reply: string) {
+    const comment = await this.commentForHost(commentId, userId);
+    comment.reply = reply;
+    comment.repliedAt = new Date();
+    await comment.save();
+    return { reply: toReply(comment) };
+  }
+
+  async deleteReply(commentId: string, userId: string) {
+    const comment = await this.commentForHost(commentId, userId);
+    comment.reply = undefined;
+    comment.repliedAt = undefined;
+    await comment.save();
+    return { reply: null };
   }
 
   async deleteComment(commentId: string, userId: string) {

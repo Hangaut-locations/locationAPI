@@ -6,6 +6,7 @@ import {
   Param,
   ParseEnumPipe,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -19,7 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard';
-import { CreateCommentDto, LikeListingDto } from './dto/review.dto';
+import { CreateCommentDto, LikeListingDto, ReplyDto } from './dto/review.dto';
 import { ReviewsService } from './reviews.service';
 import { ListingType } from './schemas/listing-type';
 
@@ -102,5 +103,29 @@ export class ReviewsController {
     @Param('commentId') commentId: string,
   ) {
     return this.reviewsService.deleteComment(commentId, request.user._id);
+  }
+
+  @Put('comments/:commentId/reply')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({
+    summary:
+      'Host only: reply to a review on your listing (sending again edits it)',
+  })
+  setReply(
+    @Req() request: AuthenticatedRequest,
+    @Param('commentId') commentId: string,
+    @Body() { reply }: ReplyDto,
+  ) {
+    return this.reviewsService.setReply(commentId, request.user._id, reply);
+  }
+
+  @Delete('comments/:commentId/reply')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Host only: remove your reply' })
+  deleteReply(
+    @Req() request: AuthenticatedRequest,
+    @Param('commentId') commentId: string,
+  ) {
+    return this.reviewsService.deleteReply(commentId, request.user._id);
   }
 }
