@@ -300,7 +300,7 @@ export const propertyStatusMails = (
               to: host.email,
               subject: `Booking cancelled: ${booking.title}`,
               heading: `${fullName(guest)} cancelled their booking`,
-              intro: 'That time is free again.',
+              intro: 'That day is free again.',
               rows: [...guestContact(guest), ...rows],
               link: {
                 label: 'Open reservations',
