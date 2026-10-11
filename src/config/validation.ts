@@ -17,6 +17,9 @@ export default Joi.object({
   CLOUDINARY_URL: Joi.string()
     .required()
     .default(process.env.CLOUDINARY_URL || ''),
+  RESEND_API_KEY: Joi.string().optional(),
+  MAIL_FROM: Joi.string().default('Hangaut <hangautbooking@pedxo.com>'),
+  SITE_URL: Joi.string().default('https://hangaut.pedxo.com'),
   ENVIRONMENT: Joi.string()
     .valid('development', 'production', 'test')
     .default(process.env.ENVIRONMENT || 'development'),

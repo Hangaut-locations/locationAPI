@@ -12,6 +12,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { BookingsService } from './bookings.service';
+import { CheckInDto } from './dto/check-in.dto';
 import { CreatePartyBookingDto } from './dto/create-party-booking.dto';
 import { CreatePropertyBookingDto } from './dto/create-property-booking.dto';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
@@ -61,6 +62,28 @@ export class BookingsController {
   @ApiOperation({ summary: 'Bookings guests made on my listings' })
   reservations(@Req() request: AuthenticatedRequest) {
     return this.bookingsService.reservations(request.user._id);
+  }
+
+  @Post('parties/check-in')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({
+    summary:
+      'Host checks a guest in with their code. Each code works once, a second try says who already used it',
+  })
+  checkIn(@Req() request: AuthenticatedRequest, @Body() { code }: CheckInDto) {
+    return this.bookingsService.checkIn(request.user._id, code);
+  }
+
+  @Get('parties/:partyId/guests')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({
+    summary: "Host's guest list for a party, with who has checked in",
+  })
+  partyGuests(
+    @Req() request: AuthenticatedRequest,
+    @Param('partyId') partyId: string,
+  ) {
+    return this.bookingsService.partyGuests(request.user._id, partyId);
   }
 
   @Get('properties/:propertyId/taken')
