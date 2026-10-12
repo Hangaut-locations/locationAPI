@@ -1,24 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { BookingStatus } from './booking-status';
-
-/** One spot at the party. The code gets someone in once. */
-@Schema({ _id: false })
-export class Ticket {
-  @Prop({ required: true, trim: true })
-  name!: string;
-
-  @Prop({ required: true, trim: true, lowercase: true })
-  email!: string;
-
-  @Prop({ required: true })
-  code!: string;
-
-  @Prop({ type: Date })
-  checked_in_at?: Date;
-}
-
-const TicketSchema = SchemaFactory.createForClass(Ticket);
+import { Ticket, ticketCodeIndex, TicketSchema } from './ticket.schema';
 
 @Schema({ timestamps: true, collection: 'party_bookings' })
 export class PartyBooking extends Document {
@@ -52,6 +35,10 @@ export class PartyBooking extends Document {
   @Prop({ required: false, trim: true })
   note?: string;
 
+  // Requests the host hasn't answered by then get declined.
+  @Prop({ type: Date, index: true })
+  respond_by?: Date;
+
   // Bookings from before codes have none.
   @Prop({ type: [TicketSchema], default: [] })
   tickets!: Ticket[];
@@ -65,6 +52,9 @@ export class PartyBooking extends Document {
 
   @Prop({ trim: true })
   location?: string;
+
+  @Prop({ trim: true })
+  rules?: string;
 
   @Prop({ type: Date })
   start_date?: Date;
@@ -87,10 +77,4 @@ export class PartyBooking extends Document {
 
 export const PartyBookingSchema = SchemaFactory.createForClass(PartyBooking);
 
-PartyBookingSchema.index(
-  { 'tickets.code': 1 },
-  {
-    unique: true,
-    partialFilterExpression: { 'tickets.code': { $exists: true } },
-  },
-);
+PartyBookingSchema.index(ticketCodeIndex.fields, ticketCodeIndex.options);

@@ -29,7 +29,10 @@ export class BookingsController {
 
   @Post('parties')
   @UseGuards(AuthGuard('jwt'))
-  @ApiOperation({ summary: 'Book a party (confirmed straight away)' })
+  @ApiOperation({
+    summary:
+      'Book a party. Confirmed straight away for instant parties, otherwise waits for the host. Codes go out once it is confirmed',
+  })
   bookParty(
     @Req() request: AuthenticatedRequest,
     @Body() bookingData: CreatePartyBookingDto,
@@ -64,14 +67,36 @@ export class BookingsController {
     return this.bookingsService.reservations(request.user._id);
   }
 
-  @Post('parties/check-in')
+  @Post('check-in')
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({
     summary:
-      'Host checks a guest in with their code. Each code works once, a second try says who already used it',
+      'Host checks a guest in with their code, for parties and homes. Each code works once, a second try says who already used it',
   })
   checkIn(@Req() request: AuthenticatedRequest, @Body() { code }: CheckInDto) {
     return this.bookingsService.checkIn(request.user._id, code);
+  }
+
+  @Post('parties/check-in')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Same as check-in, kept for the old site' })
+  checkInParty(
+    @Req() request: AuthenticatedRequest,
+    @Body() { code }: CheckInDto,
+  ) {
+    return this.bookingsService.checkIn(request.user._id, code);
+  }
+
+  @Get('properties/:id/guests')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({
+    summary: "Host's guest list for one home booking, with who has checked in",
+  })
+  homeGuests(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') bookingId: string,
+  ) {
+    return this.bookingsService.homeGuests(request.user._id, bookingId);
   }
 
   @Get('parties/:partyId/guests')
@@ -94,7 +119,9 @@ export class BookingsController {
 
   @Patch('parties/:id/status')
   @UseGuards(AuthGuard('jwt'))
-  @ApiOperation({ summary: 'Cancel a party booking' })
+  @ApiOperation({
+    summary: 'Host accepts or declines a request, or either side cancels',
+  })
   updatePartyBookingStatus(
     @Req() request: AuthenticatedRequest,
     @Param('id') bookingId: string,

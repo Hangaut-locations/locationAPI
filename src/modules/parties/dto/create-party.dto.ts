@@ -5,6 +5,7 @@ import {
   IsArray,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -76,6 +77,16 @@ export class CreatePartyDto {
   @IsString()
   @IsNotEmpty()
   party_rules!: string;
+
+  @ApiPropertyOptional({
+    enum: ['instant', 'approve-first'],
+    default: 'instant',
+    description:
+      'approve-first means you confirm each booking before guests get their codes',
+  })
+  @IsOptional()
+  @IsIn(['instant', 'approve-first'])
+  booking_setting?: string;
 
   @ApiProperty({ example: 'Nature and Adventure' })
   @RequiredUnlessDraft()

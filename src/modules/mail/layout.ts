@@ -27,7 +27,7 @@ export const buildMail = (content: MailContent): Mail => {
   const rows = (content.rows ?? [])
     .map(
       ({ label, value }) =>
-        `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;font-size:14px;vertical-align:top;white-space:nowrap">${escape(label)}</td><td style="padding:6px 0;color:#111827;font-size:14px">${escape(value)}</td></tr>`,
+        `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;font-size:14px;vertical-align:top;white-space:nowrap">${escape(label)}</td><td style="padding:6px 0;color:#111827;font-size:14px;white-space:pre-line">${escape(value)}</td></tr>`,
     )
     .join('');
   const codes = (content.codes ?? [])

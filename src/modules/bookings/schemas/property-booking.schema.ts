@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { BookingStatus } from './booking-status';
+import { Ticket, ticketCodeIndex, TicketSchema } from './ticket.schema';
 
 @Schema({ timestamps: true, collection: 'property_bookings' })
 export class PropertyBooking extends Document {
@@ -37,6 +38,14 @@ export class PropertyBooking extends Document {
   @Prop({ required: false, trim: true })
   note?: string;
 
+  // Requests the host hasn't answered by then get declined.
+  @Prop({ type: Date })
+  respond_by?: Date;
+
+  // Bookings from before codes have none.
+  @Prop({ type: [TicketSchema], default: [] })
+  tickets!: Ticket[];
+
   // Copy of the property when it was booked, so old trips still show if the listing changes.
   @Prop({ trim: true })
   title!: string;
@@ -46,6 +55,9 @@ export class PropertyBooking extends Document {
 
   @Prop({ trim: true })
   location?: string;
+
+  @Prop({ trim: true })
+  rules?: string;
 
   @Prop()
   charge_type?: string;
@@ -61,3 +73,4 @@ export const PropertyBookingSchema =
   SchemaFactory.createForClass(PropertyBooking);
 
 PropertyBookingSchema.index({ propertyId: 1, start_at: 1 });
+PropertyBookingSchema.index(ticketCodeIndex.fields, ticketCodeIndex.options);

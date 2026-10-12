@@ -1,12 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsEmail,
   IsInt,
   IsMongoId,
-  IsNotEmpty,
   IsOptional,
   IsString,
   Max,
@@ -14,29 +12,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-
-export class PartyFriendDto {
-  @ApiProperty({ example: 'Ada Obi' })
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim() : value,
-  )
-  @IsString()
-  @IsNotEmpty({ message: "Add your friend's name" })
-  @MaxLength(80)
-  name!: string;
-
-  @ApiPropertyOptional({
-    example: 'ada@example.com',
-    description: "Leave it out and this friend's code is sent to you instead",
-  })
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' && !value.trim() ? undefined : value,
-  )
-  @IsOptional()
-  @IsEmail({}, { message: "That email doesn't look right" })
-  @MaxLength(254)
-  email?: string;
-}
+import { FriendDto } from './friend.dto';
 
 export class CreatePartyBookingDto {
   @ApiProperty({ example: '6650f1c2a1b2c3d4e5f60718' })
@@ -50,7 +26,7 @@ export class CreatePartyBookingDto {
   guests!: number;
 
   @ApiPropertyOptional({
-    type: [PartyFriendDto],
+    type: [FriendDto],
     description:
       'People coming with you, up to guests - 1. Everyone gets their own code, spots without a friend send the code to you',
   })
@@ -58,8 +34,8 @@ export class CreatePartyBookingDto {
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
-  @Type(() => PartyFriendDto)
-  friends?: PartyFriendDto[];
+  @Type(() => FriendDto)
+  friends?: FriendDto[];
 
   @ApiPropertyOptional({
     example: 3,

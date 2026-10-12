@@ -5,6 +5,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -14,12 +16,15 @@ import { canOpenListing } from '../listings/visibility';
 import { Mail, MailService } from '../mail/mail.service';
 import { User } from '../users/schemas/user.schema';
 import {
+  AnyBooking,
+  cancelledMails,
+  confirmedMails,
+  DeclineReason,
+  declinedMails,
   fullName,
-  partyBookedMails,
-  partyCancelledMails,
+  Kind,
   Person,
-  propertyBookedMails,
-  propertyStatusMails,
+  requestMails,
 } from './booking-mails';
 import { partyExpiry } from '../parties/parties.service';
 import {
@@ -34,14 +39,17 @@ import {
 } from '../property/schemas/property.schema';
 import { CreatePartyBookingDto } from './dto/create-party-booking.dto';
 import { CreatePropertyBookingDto } from './dto/create-property-booking.dto';
+import { FriendDto } from './dto/friend.dto';
 import { ACTIVE_STATUSES, BookingStatus } from './schemas/booking-status';
-import { PartyBooking, Ticket } from './schemas/party-booking.schema';
+import { PartyBooking } from './schemas/party-booking.schema';
 import { PropertyBooking } from './schemas/property-booking.schema';
+import { Ticket } from './schemas/ticket.schema';
 
 /** Nigeria (WAT) is UTC+1 all year. */
 const NIGERIA_UTC_OFFSET_MS = 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+const EXPIRE_EVERY_MS = 5 * 60 * 1000;
 const GUEST_FIELDS = 'firstName lastName email phone';
 
 // No 0/O or 1/I/L, so codes read out at the door don't get mixed up.
@@ -133,17 +141,77 @@ export const partyLengthInDays = (
   return Math.max(days, 1);
 };
 
+/** The host answers before the party starts, or before it ends if it already started. */
+const partyRespondBy = (party: Party) => {
+  if (!party.start_date) return undefined;
+  const startsAt = nigeriaDateTime(
+    new Date(party.start_date).toISOString(),
+    party.start_time ?? '00:00',
+  );
+  if (startsAt > new Date() || !party.end_date) return startsAt;
+  return partyExpiry(party.end_date);
+};
+
 const fieldError = (field: string, message: string) =>
   new BadRequestException({
     message: 'Validation failed',
     data: [{ field, messages: [message] }],
   });
 
+const spotsText = (count: number) => `${count} spot${count === 1 ? '' : 's'}`;
+
+const assertFriends = (guests: number, friends: FriendDto[]) => {
+  if (friends.length > guests - 1) {
+    throw fieldError(
+      'friends',
+      guests === 1
+        ? "You're only booking for yourself, so there's no friend to add"
+        : `You're booking for ${guests}, so add up to ${guests - 1} friends`,
+    );
+  }
+};
+
+/** Booker first, then friends. Spots without a friend send the code to the booker. */
+const makeTickets = (
+  guest: Person,
+  guests: number,
+  friends: FriendDto[],
+): Ticket[] => {
+  const booker = fullName(guest);
+  return [
+    { name: booker, email: guest.email, code: newCode() },
+    ...Array.from({ length: guests - 1 }, (_, index) => ({
+      name: friends[index]?.name ?? `${booker} +${index + 1}`,
+      email: friends[index]?.email ?? guest.email,
+      code: newCode(),
+    })),
+  ];
+};
+
+/** Codes only show once the host accepts. */
+const withCodesIfConfirmed = <
+  T extends { status: BookingStatus; tickets?: Ticket[] },
+>(
+  booking: T,
+) =>
+  booking.status === BookingStatus.CONFIRMED
+    ? booking
+    : {
+        ...booking,
+        tickets: (booking.tickets ?? []).map((ticket) => ({
+          name: ticket.name,
+          email: ticket.email,
+          checked_in_at: ticket.checked_in_at,
+        })),
+      };
+
 type Booking = PartyBooking | PropertyBooking;
 
 @Injectable()
-export class BookingsService {
+export class BookingsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BookingsService.name);
+  private expireTimer?: NodeJS.Timeout;
+  private expiring?: Promise<void>;
 
   constructor(
     @InjectModel(PartyBooking.name)
@@ -156,6 +224,19 @@ export class BookingsService {
     private mailService: MailService,
     private configService: ConfigService,
   ) {}
+
+  onModuleInit() {
+    this.expireTimer = setInterval(() => {
+      this.expireRequests().catch((error) =>
+        this.logger.error('Closing old requests failed', error),
+      );
+    }, EXPIRE_EVERY_MS);
+    this.expireTimer.unref();
+  }
+
+  onModuleDestroy() {
+    clearInterval(this.expireTimer);
+  }
 
   private get siteUrl() {
     return this.configService.get<string>('SITE_URL') ?? '';
@@ -171,12 +252,12 @@ export class BookingsService {
 
   /** Sends in the background, the booking already went through. */
   private notify(
-    booking: { guestId: Types.ObjectId; hostId: Types.ObjectId },
+    item: AnyBooking,
     build: (guest: Person, host: Person) => Mail[],
   ) {
     void Promise.all([
-      this.findPerson(booking.guestId),
-      this.findPerson(booking.hostId),
+      this.findPerson(item.booking.guestId),
+      this.findPerson(item.booking.hostId),
     ])
       .then(([guest, host]) =>
         guest && host
@@ -186,10 +267,43 @@ export class BookingsService {
       .catch((error) => this.logger.error('Booking emails failed', error));
   }
 
-  async bookParty(
-    guestId: string,
-    bookingData: CreatePartyBookingDto,
-  ): Promise<PartyBooking> {
+  /** Instant bookings send codes now, requests wait for the host. */
+  private notifyBooked(item: AnyBooking) {
+    this.notify(item, (guest, host) =>
+      item.booking.status === BookingStatus.CONFIRMED
+        ? confirmedMails(item, guest, host, this.siteUrl, false)
+        : requestMails(item, guest, host, this.siteUrl),
+    );
+  }
+
+  private notifyStatus(
+    item: AnyBooking,
+    userId: string,
+    wasConfirmed: boolean,
+  ) {
+    const byHost = item.booking.hostId.toString() === userId.toString();
+    this.notify(item, (guest, host) => {
+      switch (item.booking.status) {
+        case BookingStatus.CONFIRMED:
+          return confirmedMails(item, guest, host, this.siteUrl, true);
+        case BookingStatus.DECLINED:
+          return declinedMails(item, guest, host, this.siteUrl, 'host');
+        case BookingStatus.CANCELLED:
+          return cancelledMails(
+            item,
+            guest,
+            host,
+            this.siteUrl,
+            byHost,
+            wasConfirmed,
+          );
+        default:
+          return [];
+      }
+    });
+  }
+
+  async bookParty(guestId: string, bookingData: CreatePartyBookingDto) {
     const party = await this.partyModel
       .findById(bookingData.partyId)
       .select('+private_key')
@@ -225,51 +339,39 @@ export class BookingsService {
       }
     }
 
-    const alreadyBooked = await this.partyBookingModel.exists({
-      partyId: party._id,
-      guestId: new Types.ObjectId(guestId),
-      status: { $in: ACTIVE_STATUSES },
-    });
-    if (alreadyBooked) {
-      throw new ConflictException('You already booked this party');
+    const existing = await this.partyBookingModel
+      .findOne({
+        partyId: party._id,
+        guestId: new Types.ObjectId(guestId),
+        status: { $in: ACTIVE_STATUSES },
+      })
+      .select('status')
+      .lean()
+      .exec();
+    if (existing) {
+      throw new ConflictException(
+        existing.status === BookingStatus.PENDING
+          ? 'You already asked to book this party. Wait for the host to reply.'
+          : 'You already booked this party',
+      );
     }
 
-    const [taken] = await this.partyBookingModel.aggregate<{ guests: number }>([
-      {
-        $match: { partyId: party._id, status: { $in: ACTIVE_STATUSES } },
-      },
-      { $group: { _id: null, guests: { $sum: '$guests' } } },
-    ]);
-    const spotsLeft = (party.guest_capacity ?? 0) - (taken?.guests ?? 0);
+    const spotsLeft =
+      (party.guest_capacity ?? 0) - (await this.confirmedSpots(party._id));
     if (bookingData.guests > spotsLeft) {
       throw new ConflictException(
         spotsLeft > 0
-          ? `Only ${spotsLeft} spot${spotsLeft === 1 ? '' : 's'} left for this party`
+          ? `Only ${spotsText(spotsLeft)} left for this party`
           : 'This party is fully booked',
       );
     }
 
     const friends = bookingData.friends ?? [];
-    if (friends.length > bookingData.guests - 1) {
-      throw fieldError(
-        'friends',
-        bookingData.guests === 1
-          ? "You're only booking for yourself, so there's no friend to add"
-          : `You're booking for ${bookingData.guests}, so add up to ${bookingData.guests - 1} friends`,
-      );
-    }
+    assertFriends(bookingData.guests, friends);
     const guest = await this.findPerson(guestId);
     if (!guest) throw new NotFoundException('User not found');
-    const booker = fullName(guest);
-    const tickets: Ticket[] = [
-      { name: booker, email: guest.email, code: newCode() },
-      ...Array.from({ length: bookingData.guests - 1 }, (_, index) => ({
-        name: friends[index]?.name ?? `${booker} +${index + 1}`,
-        email: friends[index]?.email ?? guest.email,
-        code: newCode(),
-      })),
-    ];
 
+    const isRequest = party.booking_setting === 'approve-first';
     const price = party.price ?? 0;
     const booking = await new this.partyBookingModel({
       partyId: party._id,
@@ -283,12 +385,14 @@ export class BookingsService {
         : perDay
           ? price * (bookingData.days ?? 1)
           : price * bookingData.guests,
-      status: BookingStatus.CONFIRMED,
+      status: isRequest ? BookingStatus.PENDING : BookingStatus.CONFIRMED,
+      respond_by: isRequest ? partyRespondBy(party) : undefined,
       note: bookingData.note,
-      tickets,
+      tickets: makeTickets(guest, bookingData.guests, friends),
       title: party.title,
       image: party.images?.[0],
       location: party.location,
+      rules: party.party_rules,
       start_date: party.start_date,
       end_date: party.end_date,
       start_time: party.start_time,
@@ -296,16 +400,11 @@ export class BookingsService {
       price,
     }).save();
 
-    this.notify(booking, (guest, host) =>
-      partyBookedMails(booking, guest, host, this.siteUrl),
-    );
-    return booking;
+    this.notifyBooked({ kind: 'party', booking });
+    return withCodesIfConfirmed(booking.toObject());
   }
 
-  async bookProperty(
-    guestId: string,
-    bookingData: CreatePropertyBookingDto,
-  ): Promise<PropertyBooking> {
+  async bookProperty(guestId: string, bookingData: CreatePropertyBookingDto) {
     const property = await this.propertyModel
       .findById(bookingData.propertyId)
       .select('+private_key')
@@ -330,6 +429,8 @@ export class BookingsService {
         `This place fits up to ${property.guest_capacity} guests`,
       );
     }
+    const friends = bookingData.friends ?? [];
+    assertFriends(bookingData.guests, friends);
 
     const startAt = nigeriaDateTime(bookingData.date, bookingData.start_time);
     if (startAt <= new Date()) {
@@ -365,6 +466,10 @@ export class BookingsService {
       );
     }
 
+    const guest = await this.findPerson(guestId);
+    if (!guest) throw new NotFoundException('User not found');
+
+    const isRequest = property.booking_setting !== 'instant';
     const price = property.price ?? 0;
     const booking = await new this.propertyBookingModel({
       propertyId: property._id,
@@ -378,22 +483,20 @@ export class BookingsService {
         property.charge_type === PropertyChargeType.HOUR
           ? price * bookingData.hours
           : price * bookingData.guests,
-      status:
-        property.booking_setting === 'instant'
-          ? BookingStatus.CONFIRMED
-          : BookingStatus.PENDING,
+      status: isRequest ? BookingStatus.PENDING : BookingStatus.CONFIRMED,
+      respond_by: isRequest ? startAt : undefined,
       note: bookingData.note,
+      tickets: makeTickets(guest, bookingData.guests, friends),
       title: property.title,
       image: property.images?.[0],
       location: property.location,
+      rules: property.property_rules,
       charge_type: property.charge_type,
       price,
     }).save();
 
-    this.notify(booking, (guest, host) =>
-      propertyBookedMails(booking, guest, host, this.siteUrl),
-    );
-    return booking;
+    this.notifyBooked({ kind: 'home', booking });
+    return withCodesIfConfirmed(booking.toObject());
   }
 
   /** Upcoming confirmed times for a property, without any guest details. */
@@ -413,6 +516,7 @@ export class BookingsService {
 
   /** What the user booked as a guest. */
   async trips(guestId: string) {
+    await this.expireRequests();
     const filter = { guestId: new Types.ObjectId(guestId) };
     const [parties, properties] = await Promise.all([
       this.partyBookingModel.find(filter).sort({ createdAt: -1 }).lean().exec(),
@@ -422,14 +526,18 @@ export class BookingsService {
         .lean()
         .exec(),
     ]);
-    return { parties, properties };
+    return {
+      parties: parties.map(withCodesIfConfirmed),
+      properties: properties.map(withCodesIfConfirmed),
+    };
   }
 
   /** Bookings guests made on the user's listings. */
   async reservations(hostId: string) {
+    await this.expireRequests();
     const filter = { hostId: new Types.ObjectId(hostId) };
+    // Codes stay with the guests, the host checks them in by typing them.
     const [parties, properties] = await Promise.all([
-      // Codes stay with the guests, the host checks them in by typing them.
       this.partyBookingModel
         .find(filter)
         .select('-tickets.code')
@@ -439,6 +547,7 @@ export class BookingsService {
         .exec(),
       this.propertyBookingModel
         .find(filter)
+        .select('-tickets.code')
         .populate('guestId', GUEST_FIELDS)
         .sort({ createdAt: -1 })
         .lean()
@@ -451,32 +560,40 @@ export class BookingsService {
     userId: string,
     bookingId: string,
     status: BookingStatus,
-  ): Promise<PartyBooking> {
+  ) {
+    await this.expireRequests();
     const booking = isValidObjectId(bookingId)
       ? await this.partyBookingModel.findById(bookingId).exec()
       : null;
     const hasEnded =
       !!booking?.end_date && partyExpiry(booking.end_date) <= new Date();
+    const wasConfirmed = booking?.status === BookingStatus.CONFIRMED;
     this.assertStatusChange(booking, userId, status, hasEnded);
+
+    if (status === BookingStatus.CONFIRMED) {
+      await this.assertPartyRoom(booking);
+    }
 
     booking.status = status;
     await booking.save();
+    this.notifyStatus({ kind: 'party', booking }, userId, wasConfirmed);
 
-    const byHost = booking.hostId.toString() === userId.toString();
-    this.notify(booking, (guest, host) =>
-      partyCancelledMails(booking, guest, host, byHost, this.siteUrl),
-    );
-    return booking;
+    if (status === BookingStatus.CONFIRMED) {
+      await this.declineWhatNoLongerFits(booking.partyId);
+    }
+    return withCodesIfConfirmed(booking.toObject());
   }
 
   async updatePropertyBookingStatus(
     userId: string,
     bookingId: string,
     status: BookingStatus,
-  ): Promise<PropertyBooking> {
+  ) {
+    await this.expireRequests();
     const booking = isValidObjectId(bookingId)
       ? await this.propertyBookingModel.findById(bookingId).exec()
       : null;
+    const wasConfirmed = booking?.status === BookingStatus.CONFIRMED;
     this.assertStatusChange(
       booking,
       userId,
@@ -494,11 +611,7 @@ export class BookingsService {
 
     booking.status = status;
     await booking.save();
-
-    const byHost = booking.hostId.toString() === userId.toString();
-    this.notify(booking, (guest, host) =>
-      propertyStatusMails(booking, guest, host, byHost, this.siteUrl),
-    );
+    this.notifyStatus({ kind: 'home', booking }, userId, wasConfirmed);
 
     if (status === BookingStatus.CONFIRMED) {
       // Other requests for the same day can't happen anymore.
@@ -511,28 +624,157 @@ export class BookingsService {
           start_at: { $lt: days.to },
           end_at: { $gt: days.from },
         })
+        .select('_id')
+        .lean()
         .exec();
       for (const request of clashing) {
-        request.status = BookingStatus.DECLINED;
-        await request.save();
-        this.notify(request, (guest, host) =>
-          propertyStatusMails(request, guest, host, true, this.siteUrl),
-        );
+        await this.declineRequest('home', request._id, 'day-taken');
       }
     }
-    return booking;
+    return withCodesIfConfirmed(booking.toObject());
+  }
+
+  /** Closes requests the host didn't answer in time. Runs every few minutes and before bookings are read. */
+  expireRequests() {
+    this.expiring ??= this.closeUnanswered().finally(() => {
+      this.expiring = undefined;
+    });
+    return this.expiring;
+  }
+
+  private async closeUnanswered() {
+    const now = new Date();
+    const [parties, homes] = await Promise.all([
+      this.partyBookingModel
+        .find({ status: BookingStatus.PENDING, respond_by: { $lte: now } })
+        .select('_id')
+        .lean()
+        .exec(),
+      // Older requests have no respond_by, they go when the booking starts.
+      this.propertyBookingModel
+        .find({ status: BookingStatus.PENDING, start_at: { $lte: now } })
+        .select('_id')
+        .lean()
+        .exec(),
+    ]);
+    for (const { _id } of parties) {
+      await this.declineRequest('party', _id, 'no-answer');
+    }
+    for (const { _id } of homes) {
+      await this.declineRequest('home', _id, 'no-answer');
+    }
+  }
+
+  /** Only touches it if it's still waiting, so the guest never gets two emails. */
+  private async declineRequest(
+    kind: Kind,
+    id: Types.ObjectId,
+    reason: DeclineReason,
+  ) {
+    const filter = { _id: id, status: BookingStatus.PENDING };
+    const update = { $set: { status: BookingStatus.DECLINED } };
+    let item: AnyBooking | undefined;
+    if (kind === 'party') {
+      const booking = await this.partyBookingModel
+        .findOneAndUpdate(filter, update, { new: true })
+        .exec();
+      if (booking) item = { kind, booking };
+    } else {
+      const booking = await this.propertyBookingModel
+        .findOneAndUpdate(filter, update, { new: true })
+        .exec();
+      if (booking) item = { kind, booking };
+    }
+    if (!item) return;
+    const declined = item;
+    this.notify(declined, (guest, host) =>
+      declinedMails(declined, guest, host, this.siteUrl, reason),
+    );
+  }
+
+  private async confirmedSpots(
+    partyId: Types.ObjectId,
+    leaveOut?: Types.ObjectId,
+  ) {
+    const [taken] = await this.partyBookingModel.aggregate<{ guests: number }>([
+      {
+        $match: {
+          partyId,
+          status: BookingStatus.CONFIRMED,
+          ...(leaveOut ? { _id: { $ne: leaveOut } } : {}),
+        },
+      },
+      { $group: { _id: null, guests: { $sum: '$guests' } } },
+    ]);
+    return taken?.guests ?? 0;
+  }
+
+  private async partySpotsLeft(
+    partyId: Types.ObjectId,
+    leaveOut?: Types.ObjectId,
+  ) {
+    const party = await this.partyModel
+      .findById(partyId)
+      .select('guest_capacity')
+      .lean()
+      .exec();
+    if (!party?.guest_capacity) return undefined;
+    return (
+      party.guest_capacity - (await this.confirmedSpots(partyId, leaveOut))
+    );
+  }
+
+  /** Requests don't hold spots, so the party may have filled up since. */
+  private async assertPartyRoom(booking: PartyBooking) {
+    const spotsLeft = await this.partySpotsLeft(booking.partyId, booking._id);
+    if (spotsLeft === undefined || booking.guests <= spotsLeft) return;
+    throw new ConflictException(
+      spotsLeft > 0
+        ? `Only ${spotsText(spotsLeft)} left, not enough for this group of ${booking.guests}`
+        : "The party is full, so this request can't be accepted",
+    );
+  }
+
+  private async declineWhatNoLongerFits(partyId: Types.ObjectId) {
+    const spotsLeft = await this.partySpotsLeft(partyId);
+    if (spotsLeft === undefined) return;
+    const tooBig = await this.partyBookingModel
+      .find({
+        partyId,
+        status: BookingStatus.PENDING,
+        guests: { $gt: spotsLeft },
+      })
+      .select('_id')
+      .lean()
+      .exec();
+    for (const request of tooBig) {
+      await this.declineRequest('party', request._id, 'full');
+    }
   }
 
   /** Host types a guest's code at the door. Each code works once. */
   async checkIn(hostId: string, rawCode: string) {
     const code = cleanCode(rawCode);
-    const booking = await this.partyBookingModel
-      .findOne({ hostId: new Types.ObjectId(hostId), 'tickets.code': code })
+    const filter = { hostId: new Types.ObjectId(hostId), 'tickets.code': code };
+    const party = await this.partyBookingModel
+      .findOne(filter)
       .populate<{ guestId: Person }>('guestId', GUEST_FIELDS)
       .exec();
+    const home = party
+      ? null
+      : await this.propertyBookingModel
+          .findOne(filter)
+          .populate<{ guestId: Person }>('guestId', GUEST_FIELDS)
+          .exec();
+    const booking = party ?? home;
     if (!booking) {
       throw new NotFoundException(
-        "That code doesn't match anyone booked on your parties",
+        "That code doesn't match anyone booked on your listings",
+      );
+    }
+    if (booking.status === BookingStatus.PENDING) {
+      throw new BadRequestException(
+        "You haven't accepted this booking yet, so the code doesn't work",
       );
     }
     if (booking.status !== BookingStatus.CONFIRMED) {
@@ -540,39 +782,47 @@ export class BookingsService {
         `This booking was ${booking.status}, so the code doesn't work anymore`,
       );
     }
-    if (booking.end_date && partyExpiry(booking.end_date) <= new Date()) {
+    const now = new Date();
+    if (party?.end_date && partyExpiry(party.end_date) <= now) {
       throw new BadRequestException('This party has already ended');
     }
+    if (home && home.end_at <= now) {
+      throw new BadRequestException('This booking has already ended');
+    }
 
-    const checkedInAt = new Date();
-    const updated = await this.partyBookingModel
-      .findOneAndUpdate(
-        {
-          _id: booking._id,
-          tickets: { $elemMatch: { code, checked_in_at: null } },
-        },
-        { $set: { 'tickets.$.checked_in_at': checkedInAt } },
-        { new: true },
-      )
-      .lean()
-      .exec();
+    const unused = {
+      _id: booking._id,
+      tickets: { $elemMatch: { code, checked_in_at: null } },
+    };
+    const checkIn = { $set: { 'tickets.$.checked_in_at': now } };
+    const updated = party
+      ? await this.partyBookingModel
+          .findOneAndUpdate(unused, checkIn, { new: true })
+          .lean()
+          .exec()
+      : await this.propertyBookingModel
+          .findOneAndUpdate(unused, checkIn, { new: true })
+          .lean()
+          .exec();
     const ticket = (updated ?? booking).tickets.find(
       (item) => item.code === code,
     ) as Ticket;
     if (!updated) {
       throw new ConflictException(
-        `Already checked in at ${clockAt(ticket.checked_in_at ?? checkedInAt)} (${ticket.name})`,
+        `Already checked in at ${clockAt(ticket.checked_in_at ?? now)} (${ticket.name})`,
       );
     }
 
     return {
       name: ticket.name,
       booked_by: bookerName(booking.guestId),
-      party: booking.title,
+      kind: party ? 'party' : 'home',
+      listing: booking.title,
+      party: party ? booking.title : undefined,
       group: booking.guests,
       group_checked_in: updated.tickets.filter((item) => item.checked_in_at)
         .length,
-      checked_in_at: checkedInAt,
+      checked_in_at: now,
     };
   }
 
@@ -622,6 +872,41 @@ export class BookingsService {
           booked_by: bookerName(booking.guestId),
           spots: booking.guests,
         })),
+    };
+  }
+
+  /** The group on one home booking, for the host to check in. No codes. */
+  async homeGuests(hostId: string, bookingId: string) {
+    const booking = isValidObjectId(bookingId)
+      ? await this.propertyBookingModel
+          .findOne({
+            _id: new Types.ObjectId(bookingId),
+            hostId: new Types.ObjectId(hostId),
+          })
+          .populate<{ guestId: Person }>('guestId', GUEST_FIELDS)
+          .lean()
+          .exec()
+      : null;
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    const bookedBy = bookerName(booking.guestId);
+    const guests = booking.tickets.map((ticket) => ({
+      name: ticket.name,
+      booked_by: bookedBy,
+      booking_id: booking._id,
+      checked_in_at: ticket.checked_in_at ?? null,
+    }));
+    return {
+      title: booking.title,
+      status: booking.status,
+      start_at: booking.start_at,
+      end_at: booking.end_at,
+      spots: booking.guests,
+      checked_in: guests.filter((guest) => guest.checked_in_at).length,
+      guests,
+      without_codes: booking.tickets.length
+        ? []
+        : [{ booked_by: bookedBy, spots: booking.guests }],
     };
   }
 

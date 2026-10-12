@@ -5,5 +5,5 @@ export enum BookingStatus {
   CANCELLED = 'cancelled',
 }
 
-/** Bookings that still hold a spot or a time slot. */
+/** Bookings that are going ahead or still waiting on the host. Only confirmed ones take up room. */
 export const ACTIVE_STATUSES = [BookingStatus.PENDING, BookingStatus.CONFIRMED];
