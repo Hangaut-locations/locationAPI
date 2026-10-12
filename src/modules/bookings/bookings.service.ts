@@ -103,6 +103,15 @@ const blockedDayIn = (blocked: string[], startAt: Date, endAt: Date) => {
   }
 };
 
+/** Homes take one booking a day, so a booking holds every Nigeria day it touches. */
+const wholeDays = (startAt: Date, endAt: Date) => {
+  const lastDay = nigeriaDate(new Date(endAt.getTime() - 1));
+  return {
+    from: nigeriaDateTime(nigeriaDate(startAt), '00:00'),
+    to: new Date(nigeriaDateTime(lastDay, '00:00').getTime() + DAY_MS),
+  };
+};
+
 const readableDate = (date: string) =>
   new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', {
     weekday: 'short',
@@ -342,16 +351,17 @@ export class BookingsService {
 
     await this.assertPropertyFree(property._id, startAt, endAt);
 
+    const days = wholeDays(startAt, endAt);
     const alreadyAsked = await this.propertyBookingModel.exists({
       propertyId: property._id,
       guestId: new Types.ObjectId(guestId),
       status: BookingStatus.PENDING,
-      start_at: { $lt: endAt },
-      end_at: { $gt: startAt },
+      start_at: { $lt: days.to },
+      end_at: { $gt: days.from },
     });
     if (alreadyAsked) {
       throw new ConflictException(
-        'You already sent a request for this time. Wait for the host to reply.',
+        'You already sent a request for this day. Wait for the host to reply.',
       );
     }
 
@@ -491,14 +501,15 @@ export class BookingsService {
     );
 
     if (status === BookingStatus.CONFIRMED) {
-      // Other requests for the same time can't happen anymore.
+      // Other requests for the same day can't happen anymore.
+      const days = wholeDays(booking.start_at, booking.end_at);
       const clashing = await this.propertyBookingModel
         .find({
           _id: { $ne: booking._id },
           propertyId: booking.propertyId,
           status: BookingStatus.PENDING,
-          start_at: { $lt: booking.end_at },
-          end_at: { $gt: booking.start_at },
+          start_at: { $lt: days.to },
+          end_at: { $gt: days.from },
         })
         .exec();
       for (const request of clashing) {
@@ -619,15 +630,23 @@ export class BookingsService {
     startAt: Date,
     endAt: Date,
   ) {
-    const clash = await this.propertyBookingModel.exists({
-      propertyId,
-      status: BookingStatus.CONFIRMED,
-      start_at: { $lt: endAt },
-      end_at: { $gt: startAt },
-    });
+    const days = wholeDays(startAt, endAt);
+    const clash = await this.propertyBookingModel
+      .findOne({
+        propertyId,
+        status: BookingStatus.CONFIRMED,
+        start_at: { $lt: days.to },
+        end_at: { $gt: days.from },
+      })
+      .select('start_at')
+      .lean()
+      .exec();
     if (clash) {
+      const day = nigeriaDate(
+        clash.start_at > days.from ? clash.start_at : days.from,
+      );
       throw new ConflictException(
-        'Someone already booked this place for that time. Pick another time.',
+        `Someone already booked this place on ${readableDate(day)}. Pick another day.`,
       );
     }
   }

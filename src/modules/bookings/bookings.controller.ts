@@ -41,7 +41,7 @@ export class BookingsController {
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({
     summary:
-      'Book a property. Confirmed straight away for instant booking, otherwise waits for the host. Refused if the time clashes with a confirmed booking',
+      'Book a property. Confirmed straight away for instant booking, otherwise waits for the host. One booking a day, refused if the day (or a day a late booking runs into) already has a confirmed booking',
   })
   bookProperty(
     @Req() request: AuthenticatedRequest,
