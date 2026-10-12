@@ -60,6 +60,11 @@ export class PartiesController {
         guest_capacity: { type: 'integer' },
         charge_type: { type: 'string', enum: Object.values(ChargeType) },
         party_rules: { type: 'string' },
+        booking_setting: {
+          type: 'string',
+          enum: ['instant', 'approve-first'],
+          default: 'instant',
+        },
         is_ticket_sales: { type: 'boolean' },
         price: { type: 'number' },
         status: { enum: Object.values(StatusType), default: 'draft' },

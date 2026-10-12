@@ -92,6 +92,10 @@ export class Party extends Document {
   @Prop({ required: false, trim: true })
   party_rules!: string;
 
+  /** 'instant' books straight away, 'approve-first' waits for the host. */
+  @Prop({ required: false, default: 'instant' })
+  booking_setting!: string;
+
   @Prop({ required: false, default: 'false' })
   is_ticket_sales!: string;
 

@@ -1,6 +1,5 @@
 import { buildMail, MailContent } from '../mail/layout';
 import { Mail } from '../mail/mail.service';
-import { BookingStatus } from './schemas/booking-status';
 import { PartyBooking } from './schemas/party-booking.schema';
 import { PropertyBooking } from './schemas/property-booking.schema';
 
@@ -10,6 +9,17 @@ export interface Person {
   email: string;
   phone?: string;
 }
+
+export type Kind = 'party' | 'home';
+
+export type AnyBooking =
+  | { kind: 'party'; booking: PartyBooking }
+  | { kind: 'home'; booking: PropertyBooking };
+
+/** Why a request didn't go through. */
+export type DeclineReason = 'host' | 'no-answer' | 'full' | 'day-taken';
+
+type Row = { label: string; value: string };
 
 export const fullName = (person: Person) =>
   `${person.firstName} ${person.lastName}`.trim();
@@ -58,257 +68,277 @@ const partyWhen = (booking: PartyBooking) => {
     : dates;
 };
 
-const partyRows = (booking: PartyBooking) => [
-  { label: 'Party', value: booking.title },
-  { label: 'When', value: partyWhen(booking) },
-  ...(booking.location ? [{ label: 'Where', value: booking.location }] : []),
-];
+const when = (item: AnyBooking) =>
+  item.kind === 'party'
+    ? partyWhen(item.booking)
+    : `${nigeriaTime(item.booking.start_at)}, ${plural(item.booking.hours, 'hour')}`;
 
-const propertyRows = (booking: PropertyBooking) => [
-  { label: 'Place', value: booking.title },
+const listingRows = (item: AnyBooking): Row[] => [
   {
-    label: 'When',
-    value: `${nigeriaTime(booking.start_at)}, ${plural(booking.hours, 'hour')}`,
+    label: item.kind === 'party' ? 'Party' : 'Place',
+    value: item.booking.title,
   },
-  ...(booking.location ? [{ label: 'Where', value: booking.location }] : []),
-  { label: 'Guests', value: String(booking.guests) },
-  { label: 'Total', value: money(booking.total) },
+  { label: 'When', value: when(item) },
+  ...(item.booking.location
+    ? [{ label: 'Where', value: item.booking.location }]
+    : []),
 ];
 
-const guestContact = (guest: Person) => [
+const guestContact = (guest: Person): Row[] => [
   { label: 'Guest', value: fullName(guest) },
   { label: 'Email', value: guest.email },
   ...(guest.phone ? [{ label: 'Phone', value: guest.phone }] : []),
 ];
 
-const noteRow = (note?: string) =>
+const groupRows = (item: AnyBooking): Row[] => {
+  const names = item.booking.tickets.map((ticket) => ticket.name);
+  return [
+    { label: 'Group', value: people(item.booking.guests) },
+    ...(names.length > 1 ? [{ label: 'Names', value: names.join(', ') }] : []),
+  ];
+};
+
+const totalRow = (item: AnyBooking): Row[] => [
+  { label: 'Total', value: money(item.booking.total) },
+];
+
+const noteRow = (note?: string): Row[] =>
   note ? [{ label: 'Note', value: note }] : [];
 
+const rulesRow = (rules?: string): Row[] =>
+  rules ? [{ label: 'House rules', value: rules }] : [];
+
 /** Each email gets one message with all of its codes. */
-const ticketsByEmail = (booking: PartyBooking) => {
+const ticketsByEmail = (item: AnyBooking) => {
   const groups = new Map<string, { name: string; code: string }[]>();
-  for (const { email, name, code } of booking.tickets) {
+  for (const { email, name, code } of item.booking.tickets) {
     groups.set(email, [...(groups.get(email) ?? []), { name, code }]);
   }
   return groups;
 };
 
-export const partyBookedMails = (
-  booking: PartyBooking,
+const links = (item: AnyBooking, siteUrl: string) => ({
+  trips: { label: 'See your trips', url: `${siteUrl}/reservations?tab=trips` },
+  hosting: {
+    label: 'Open reservations',
+    url: `${siteUrl}/reservations?tab=hosting`,
+  },
+  listing:
+    item.kind === 'party'
+      ? {
+          label: 'See the party',
+          url: `${siteUrl}/parties/${item.booking.partyId.toString()}`,
+        }
+      : {
+          label: 'See the place',
+          url: `${siteUrl}/homes/${item.booking.propertyId.toString()}`,
+        },
+  guestList: {
+    label: 'Open the guest list',
+    url:
+      item.kind === 'party'
+        ? `${siteUrl}/check-in/${item.booking.partyId.toString()}`
+        : `${siteUrl}/check-in/home/${item.booking._id.toString()}`,
+  },
+  more:
+    item.kind === 'party'
+      ? { label: 'Find another party', url: `${siteUrl}/parties` }
+      : { label: 'Find another place', url: `${siteUrl}/homes` },
+});
+
+/** The host has to accept first. Friends hear nothing until then. */
+export const requestMails = (
+  item: AnyBooking,
   guest: Person,
   host: Person,
   siteUrl: string,
 ): Mail[] => {
   const booker = fullName(guest);
-  const guestMails = [...ticketsByEmail(booking)].map(
-    ([email, codes]): MailContent => {
-      const isBooker = email === guest.email.toLowerCase();
-      return {
-        to: email,
-        subject: `Your code for ${booking.title}`,
-        heading: isBooker
-          ? `You're going to ${booking.title}!`
-          : `${booker} booked you a spot at ${booking.title}`,
-        intro:
-          codes.length > 1
-            ? 'Here are the codes for your group. Each code gets one person in, one time, so send each friend their own.'
-            : 'Show this code at the door. It gets you in one time, so keep it to yourself.',
-        codes,
-        rows: [
-          ...partyRows(booking),
-          ...(isBooker ? [] : [{ label: 'Booked by', value: booker }]),
-          { label: 'Group', value: people(booking.guests) },
-        ],
-        link: isBooker
-          ? {
-              label: 'See your trips',
-              url: `${siteUrl}/reservations?tab=trips`,
-            }
-          : {
-              label: 'See the party',
-              url: `${siteUrl}/parties/${booking.partyId.toString()}`,
-            },
-      };
-    },
-  );
-
-  const hostMail: MailContent = {
-    to: host.email,
-    subject: `New booking: ${booking.title}`,
-    heading: `${booker} booked ${plural(booking.guests, 'spot')} for ${booking.title}`,
-    intro:
-      'Everyone in the group got their own code. Check them in at the door from the guest list.',
-    rows: [
-      ...guestContact(guest),
-      { label: 'Spots', value: String(booking.guests) },
-      {
-        label: 'Names',
-        value: booking.tickets.map((ticket) => ticket.name).join(', '),
-      },
-      { label: 'Total', value: money(booking.total) },
-      ...noteRow(booking.note),
-    ],
-    link: {
-      label: 'Open the guest list',
-      url: `${siteUrl}/check-in/${booking.partyId.toString()}`,
-    },
-  };
-
-  return [...guestMails, hostMail].map(buildMail);
-};
-
-export const partyCancelledMails = (
-  booking: PartyBooking,
-  guest: Person,
-  host: Person,
-  byHost: boolean,
-  siteUrl: string,
-): Mail[] => {
-  const booker = fullName(guest);
-  const rows = [
-    ...partyRows(booking),
-    { label: 'Group', value: people(booking.guests) },
-  ];
-  const guestEmails = [...ticketsByEmail(booking).keys()].filter(
-    (email) => byHost || email !== guest.email.toLowerCase(),
-  );
-  const mails: MailContent[] = guestEmails.map((email) => ({
-    to: email,
-    subject: `Cancelled: ${booking.title}`,
-    heading: byHost
-      ? `The host cancelled the booking for ${booking.title}`
-      : `${booker} cancelled the booking for ${booking.title}`,
-    intro: "The codes from this booking won't work at the door anymore.",
-    rows,
-    link: { label: 'Find another party', url: `${siteUrl}/parties` },
-  }));
-  if (!byHost) {
-    mails.push({
-      to: host.email,
-      subject: `Booking cancelled: ${booking.title}`,
-      heading: `${booker} cancelled their booking for ${booking.title}`,
-      intro: `${plural(booking.guests, 'spot')} opened up again, and their codes won't work at the door anymore.`,
-      rows: [...guestContact(guest), ...rows],
-      link: {
-        label: 'Open reservations',
-        url: `${siteUrl}/reservations?tab=hosting`,
-      },
-    });
-  }
-  return mails.map(buildMail);
-};
-
-export const propertyBookedMails = (
-  booking: PropertyBooking,
-  guest: Person,
-  host: Person,
-  siteUrl: string,
-): Mail[] => {
-  const isRequest = booking.status === BookingStatus.PENDING;
-  const booker = fullName(guest);
+  const link = links(item, siteUrl);
+  const { title, guests } = item.booking;
   return [
     {
       to: host.email,
-      subject: isRequest
-        ? `New booking request: ${booking.title}`
-        : `New booking: ${booking.title}`,
-      heading: isRequest
-        ? `${booker} wants to book ${booking.title}`
-        : `${booker} booked ${booking.title}`,
-      intro: isRequest
-        ? 'Accept or decline it on your reservations page.'
-        : "It's confirmed, here are the details.",
+      subject: `New booking request: ${title}`,
+      heading:
+        item.kind === 'party'
+          ? `${booker} wants ${plural(guests, 'spot')} at ${title}`
+          : `${booker} wants to book ${title}`,
+      intro:
+        'Log in to Hangaut and accept or decline it on your reservations page. Once you accept, everyone in the group gets their own code by email.',
       rows: [
         ...guestContact(guest),
-        ...propertyRows(booking),
-        ...noteRow(booking.note),
+        ...listingRows(item),
+        ...groupRows(item),
+        ...totalRow(item),
+        ...noteRow(item.booking.note),
       ],
-      link: {
-        label: 'Open reservations',
-        url: `${siteUrl}/reservations?tab=hosting`,
-      },
+      outro:
+        "If you don't answer before it starts, it gets declined on its own.",
+      link: link.hosting,
     },
     {
       to: guest.email,
-      subject: isRequest
-        ? `Request sent: ${booking.title}`
-        : `Booking confirmed: ${booking.title}`,
-      heading: isRequest
-        ? 'Your request is with the host'
-        : `You're booked at ${booking.title}!`,
-      intro: isRequest
-        ? `We'll email you when ${host.firstName} accepts or declines it.`
-        : `Hosted by ${fullName(host)}.`,
-      rows: propertyRows(booking),
-      link: {
-        label: 'See your trips',
-        url: `${siteUrl}/reservations?tab=trips`,
-      },
+      subject: `Request sent: ${title}`,
+      heading: 'Your request is with the host',
+      intro: `We'll email you and everyone you're bringing your codes as soon as ${host.firstName} accepts it.`,
+      rows: [...listingRows(item), ...groupRows(item), ...totalRow(item)],
+      link: link.trips,
     },
   ].map(buildMail);
 };
 
-export const propertyStatusMails = (
-  booking: PropertyBooking,
+/** Everyone in the group gets their codes. The host hears about instant bookings. */
+export const confirmedMails = (
+  item: AnyBooking,
   guest: Person,
   host: Person,
-  byHost: boolean,
   siteUrl: string,
+  acceptedByHost: boolean,
 ): Mail[] => {
-  const rows = propertyRows(booking);
-  const trips = {
-    label: 'See your trips',
-    url: `${siteUrl}/reservations?tab=trips`,
+  const booker = fullName(guest);
+  const link = links(item, siteUrl);
+  const { title } = item.booking;
+  const going =
+    item.kind === 'party'
+      ? `You're going to ${title}!`
+      : `You're booked at ${title}!`;
+
+  const guestMails = [...ticketsByEmail(item)].map(
+    ([email, codes]): MailContent => {
+      const isBooker = email === guest.email.toLowerCase();
+      return {
+        to: email,
+        subject: acceptedByHost
+          ? `Booking confirmed: ${title}`
+          : `Your code for ${title}`,
+        heading: isBooker
+          ? acceptedByHost
+            ? `${host.firstName} accepted your booking. ${going}`
+            : going
+          : `${booker} booked you a spot at ${title}`,
+        intro:
+          codes.length > 1
+            ? 'Here are the codes for your group. Each code gets one person in, one time, so send each friend their own.'
+            : 'Show this code to the host when you arrive. It works one time, so keep it to yourself.',
+        codes,
+        rows: [
+          ...listingRows(item),
+          ...(isBooker ? [] : [{ label: 'Booked by', value: booker }]),
+          { label: 'Group', value: people(item.booking.guests) },
+          { label: 'Host', value: fullName(host) },
+          ...rulesRow(item.booking.rules),
+        ],
+        outro: item.booking.rules
+          ? 'Please stick to the house rules so everyone has a good time.'
+          : undefined,
+        link: isBooker ? link.trips : link.listing,
+      };
+    },
+  );
+
+  if (acceptedByHost) return guestMails.map(buildMail);
+
+  const hostMail: MailContent = {
+    to: host.email,
+    subject: `New booking: ${title}`,
+    heading:
+      item.kind === 'party'
+        ? `${booker} booked ${plural(item.booking.guests, 'spot')} for ${title}`
+        : `${booker} booked ${title}`,
+    intro:
+      'Everyone in the group got their own code. Check them in from the guest list when they arrive.',
+    rows: [
+      ...guestContact(guest),
+      ...listingRows(item),
+      ...groupRows(item),
+      ...totalRow(item),
+      ...noteRow(item.booking.note),
+    ],
+    link: link.guestList,
   };
-  const homes = { label: 'Find another place', url: `${siteUrl}/homes` };
-  switch (booking.status) {
-    case BookingStatus.CONFIRMED:
-      return [
-        buildMail({
-          to: guest.email,
-          subject: `Booking confirmed: ${booking.title}`,
-          heading: `${host.firstName} accepted your booking`,
-          intro: `You're booked at ${booking.title}.`,
-          rows,
-          link: trips,
-        }),
-      ];
-    case BookingStatus.DECLINED:
-      return [
-        buildMail({
-          to: guest.email,
-          subject: `Booking declined: ${booking.title}`,
-          heading: `${booking.title} isn't available`,
-          intro:
-            "The host couldn't take this booking. Try another time or another place.",
-          rows,
-          link: homes,
-        }),
-      ];
-    case BookingStatus.CANCELLED:
-      return [
-        byHost
-          ? buildMail({
-              to: guest.email,
-              subject: `Cancelled: ${booking.title}`,
-              heading: 'The host cancelled your booking',
-              intro: `${fullName(host)} cancelled your booking at ${booking.title}.`,
-              rows,
-              link: homes,
-            })
-          : buildMail({
-              to: host.email,
-              subject: `Booking cancelled: ${booking.title}`,
-              heading: `${fullName(guest)} cancelled their booking`,
-              intro: 'That day is free again.',
-              rows: [...guestContact(guest), ...rows],
-              link: {
-                label: 'Open reservations',
-                url: `${siteUrl}/reservations?tab=hosting`,
-              },
-            }),
-      ];
-    default:
-      return [];
+  return [...guestMails, hostMail].map(buildMail);
+};
+
+const declineText: Record<DeclineReason, (host: Person) => string> = {
+  host: (host) => `${host.firstName} couldn't take this booking.`,
+  'no-answer': (host) =>
+    `${host.firstName} didn't answer before it started, so the request was closed.`,
+  full: () => 'It filled up before the host could accept your request.',
+  'day-taken': () =>
+    'Someone else got that day before the host could accept your request.',
+};
+
+/** Only the booker hears, friends never got codes. */
+export const declinedMails = (
+  item: AnyBooking,
+  guest: Person,
+  host: Person,
+  siteUrl: string,
+  reason: DeclineReason,
+): Mail[] => {
+  const link = links(item, siteUrl);
+  return [
+    buildMail({
+      to: guest.email,
+      subject: `Booking declined: ${item.booking.title}`,
+      heading: `Your request for ${item.booking.title} didn't go through`,
+      intro: `${declineText[reason](host)} Try another time or another place.`,
+      rows: [...listingRows(item), ...groupRows(item)],
+      link: link.more,
+    }),
+  ];
+};
+
+export const cancelledMails = (
+  item: AnyBooking,
+  guest: Person,
+  host: Person,
+  siteUrl: string,
+  byHost: boolean,
+  wasConfirmed: boolean,
+): Mail[] => {
+  const booker = fullName(guest);
+  const link = links(item, siteUrl);
+  const { title } = item.booking;
+  const rows = [...listingRows(item), ...groupRows(item)];
+
+  // Friends only have codes once it was confirmed.
+  const guestEmails = (
+    wasConfirmed
+      ? [...ticketsByEmail(item).keys()]
+      : [guest.email.toLowerCase()]
+  ).filter((email) => byHost || email !== guest.email.toLowerCase());
+  const mails: MailContent[] = guestEmails.map((email) => ({
+    to: email,
+    subject: `Cancelled: ${title}`,
+    heading: byHost
+      ? `The host cancelled the booking for ${title}`
+      : `${booker} cancelled the booking for ${title}`,
+    intro: wasConfirmed
+      ? "The codes from this booking won't work anymore."
+      : 'The request is closed.',
+    rows,
+    link: link.more,
+  }));
+
+  if (!byHost) {
+    mails.push({
+      to: host.email,
+      subject: wasConfirmed
+        ? `Booking cancelled: ${title}`
+        : `Request withdrawn: ${title}`,
+      heading: wasConfirmed
+        ? `${booker} cancelled their booking for ${title}`
+        : `${booker} withdrew their request for ${title}`,
+      intro: !wasConfirmed
+        ? 'Nothing for you to do.'
+        : item.kind === 'party'
+          ? `${plural(item.booking.guests, 'spot')} opened up again, and their codes won't work anymore.`
+          : "That day is free again, and their codes won't work anymore.",
+      rows: [...guestContact(guest), ...rows],
+      link: link.hosting,
+    });
   }
+  return mails.map(buildMail);
 };

@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsInt,
   IsMongoId,
@@ -10,7 +12,9 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { FriendDto } from './friend.dto';
 
 export class CreatePropertyBookingDto {
   @ApiProperty({ example: '6650f1c2a1b2c3d4e5f60718' })
@@ -39,6 +43,18 @@ export class CreatePropertyBookingDto {
   @IsInt()
   @Min(1)
   guests!: number;
+
+  @ApiPropertyOptional({
+    type: [FriendDto],
+    description:
+      'People coming with you, up to guests - 1. Everyone gets their own code, spots without a friend send the code to you',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => FriendDto)
+  friends?: FriendDto[];
 
   @ApiPropertyOptional({
     description: 'Key from the private link, needed for private places',
