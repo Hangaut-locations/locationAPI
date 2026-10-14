@@ -20,6 +20,8 @@ export default Joi.object({
   RESEND_API_KEY: Joi.string().optional(),
   MAIL_FROM: Joi.string().default('Hangaut <hangautbooking@pedxo.com>'),
   SITE_URL: Joi.string().default('https://hangaut.pedxo.com'),
+  // how often unsaved listing uploads get cleaned out of Cloudinary
+  MEDIA_CLEANUP_MINUTES: Joi.number().min(0.05).default(1440),
   ENVIRONMENT: Joi.string()
     .valid('development', 'production', 'test')
     .default(process.env.ENVIRONMENT || 'development'),
