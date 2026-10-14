@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { requiredUnlessDraft } from '../../listings/draft';
+import { ListingVideo, ListingVideoSchema } from '../../listings/video';
 import { Visibility } from '../../listings/visibility';
 
 export enum ChargeType {
@@ -69,15 +70,11 @@ export class Party extends Document {
   @Prop({ select: false })
   private_key?: string;
 
-  @Prop({
-    type: [String],
-    default: [],
-    validate: {
-      validator: (photos: string[]) => photos.length <= 5,
-      message: 'A party can have at most 5 photos',
-    },
-  })
+  @Prop({ type: [String], default: [] })
   images!: string[];
+
+  @Prop({ type: ListingVideoSchema, default: null })
+  video?: ListingVideo | null;
 
   @Prop({ required: false, min: 1 })
   guest_capacity!: number;

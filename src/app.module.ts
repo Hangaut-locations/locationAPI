@@ -12,6 +12,7 @@ import { PropertyModule } from './modules/property/property.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { MailModule } from './modules/mail/mail.module';
+import { MediaModule } from './modules/media/media.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { MailModule } from './modules/mail/mail.module';
     FavoritesModule,
     BookingsModule,
     ReviewsModule,
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [AppService],

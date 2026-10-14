@@ -1,7 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
   IsArray,
   IsDateString,
   IsEnum,
@@ -15,6 +14,7 @@ import {
   Min,
 } from 'class-validator';
 import { RequiredUnlessDraft } from '../../listings/draft';
+import { VIDEO_ID_PATTERN } from '../../listings/video';
 import { Visibility } from '../../listings/visibility';
 import { ChargeType, StatusType } from '../schemas/party.schema';
 
@@ -43,9 +43,18 @@ export class CreatePartyDto {
   })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(5)
   // @IsUrl({}, { each: true })
   images?: string[];
+
+  @ApiPropertyOptional({
+    example: 'hangaut/parties/videos/abc123',
+    description:
+      'public_id from the Cloudinary video upload (see POST /media/upload-signature), "" removes the video',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(VIDEO_ID_PATTERN, { message: 'Upload the video again' })
+  video?: string;
 
   @ApiProperty({ example: 50, minimum: 1 })
   @RequiredUnlessDraft()

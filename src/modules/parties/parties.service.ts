@@ -29,6 +29,8 @@ import {
   Favorite,
   FavoriteTargetType,
 } from '../favorites/schemas/favorite.schema';
+import { ListingVideo } from '../listings/video';
+import { MediaService } from '../media/media.service';
 import { User } from '../users/schemas/user.schema';
 import { findPublicHost, PublicHost } from '../users/host';
 import { Party, StatusType } from './schemas/party.schema';
@@ -72,6 +74,7 @@ export class PartiesService implements OnModuleInit {
     @InjectModel(Favorite.name) private favoriteModel: Model<Favorite>,
     @InjectModel(User.name) private userModel: Model<User>,
     private configService: ConfigService,
+    private mediaService: MediaService,
   ) {
     const cloudinaryUrl =
       this.configService.getOrThrow<string>('CLOUDINARY_URL');
@@ -156,15 +159,19 @@ export class PartiesService implements OnModuleInit {
     partyData: CreatePartyDto,
     images: Express.Multer.File[] = [],
   ): Promise<Party> {
-    if ((partyData.images?.length ?? 0) + images.length > 5) {
-      throw new BadRequestException('A party can have at most 5 photos');
-    }
     this.assertDateOrder(partyData.start_date, partyData.end_date);
 
+    const { video, ...fields } = partyData;
+    const listingVideo = await this.mediaService.nextVideo(
+      null,
+      video,
+      ownerId,
+    );
     const photoUrls = await this.uploadImages(images, partyData.images);
     return new this.partyModel({
-      ...partyData,
+      ...fields,
       images: photoUrls,
+      video: listingVideo ?? null,
       expires_at: partyData.end_date ? partyExpiry(partyData.end_date) : null,
       published_at: publishedAtFor(partyData.status ?? StatusType.PUBLISHED),
       private_key:
@@ -338,12 +345,14 @@ export class PartiesService implements OnModuleInit {
       partyData.end_date ?? party.end_date,
     );
 
-    const updatedPartyData: UpdatePartyDto & {
+    const { video, ...changes } = partyData;
+    const updatedPartyData: Omit<UpdatePartyDto, 'video'> & {
       expires_at?: Date;
       published_at?: Date;
       private_key?: string;
+      video?: ListingVideo | null;
     } = {
-      ...partyData,
+      ...changes,
     };
     if (partyData.visibility === Visibility.PRIVATE && !party.private_key) {
       updatedPartyData.private_key = newPrivateKey();
@@ -356,42 +365,42 @@ export class PartiesService implements OnModuleInit {
       updatedPartyData.expires_at = partyExpiry(partyData.end_date);
     }
 
-    const requestedImages = partyData.images ?? party.images;
-    if (requestedImages.length + images.length > 5) {
-      throw new BadRequestException('A party can have at most 5 photos');
-    }
-
     if (partyData.images || images.length > 0) {
       updatedPartyData.images = await this.uploadImages(
         images,
-        requestedImages,
+        partyData.images ?? party.images,
       );
-    }
-    if ((updatedPartyData.images?.length ?? party.images.length) > 5) {
-      throw new BadRequestException('A party can have at most 5 photos');
     }
     assertPublishable(
       { ...party.toObject(), ...updatedPartyData },
       PARTY_PUBLISH_FIELDS,
     );
+    const listingVideo = await this.mediaService.nextVideo(
+      party.video,
+      video,
+      ownerId,
+    );
+    if (listingVideo !== undefined) {
+      updatedPartyData.video = listingVideo;
+    }
 
-    return this.partyModel
+    const updated = await this.partyModel
       .findOneAndUpdate({ _id: partyId, ownerId }, updatedPartyData, {
         new: true,
         runValidators: true,
       })
       .select('+private_key')
       .exec();
+    if (updated && listingVideo !== undefined) {
+      await this.mediaService.removeVideo(party.video?.public_id);
+    }
+    return updated;
   }
 
   private async uploadImages(
     images: Express.Multer.File[],
     imageSources: string[] = [],
   ): Promise<string[]> {
-    if (images.length + imageSources.length > 5) {
-      throw new BadRequestException('You can upload at most 5 images');
-    }
-
     const uploadedFiles = await Promise.all(
       images.map((image) => this.uploadImage(image.buffer)),
     );
@@ -441,6 +450,10 @@ export class PartiesService implements OnModuleInit {
     if (!isValidObjectId(partyId)) {
       return null;
     }
-    return this.partyModel.findOneAndDelete({ _id: partyId, ownerId }).exec();
+    const party = await this.partyModel
+      .findOneAndDelete({ _id: partyId, ownerId })
+      .exec();
+    await this.mediaService.removeVideo(party?.video?.public_id);
+    return party;
   }
 }

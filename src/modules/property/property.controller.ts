@@ -59,6 +59,7 @@ export class PropertyController {
         description: { type: 'string' },
         location: { type: 'string' },
         images: { type: 'array', items: { type: 'string', format: 'binary' } },
+        video: { type: 'string', example: 'hangaut/property/videos/abc123' },
         charge_type: { enum: Object.values(ChargeType), default: 'person' },
         space_type: { enum: Object.values(SpaceType), default: 'entire' },
         property_rules: { type: 'string' },
@@ -75,7 +76,7 @@ export class PropertyController {
     },
   })
   @UseInterceptors(
-    FilesInterceptor('images', 5, {
+    FilesInterceptor('images', undefined, {
       storage: memoryStorage(),
       fileFilter: (_request, file, callback) => {
         if (!file.mimetype.startsWith('image/')) {
@@ -208,7 +209,7 @@ export class PropertyController {
   @UseGuards(AuthGuard('jwt'))
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FilesInterceptor('images', 5, {
+    FilesInterceptor('images', undefined, {
       storage: memoryStorage(),
       fileFilter: (_request, file, callback) => {
         if (!file.mimetype.startsWith('image/')) {

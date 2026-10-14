@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Favorite, FavoriteSchema } from '../favorites/schemas/favorite.schema';
+import { MediaModule } from '../media/media.module';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Property, PropertySchema } from './schemas/property.schema';
 import { PropertyController } from './property.controller';
@@ -15,6 +16,7 @@ import { PropertyService } from './property.service';
       { name: Favorite.name, schema: FavoriteSchema },
     ]),
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    MediaModule,
   ],
   controllers: [PropertyController],
   providers: [PropertyService],

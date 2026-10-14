@@ -31,6 +31,8 @@ import {
   Favorite,
   FavoriteTargetType,
 } from '../favorites/schemas/favorite.schema';
+import { ListingVideo } from '../listings/video';
+import { MediaService } from '../media/media.service';
 import { User } from '../users/schemas/user.schema';
 import { findPublicHost, PublicHost } from '../users/host';
 import { Property, StatusType } from './schemas/property.schema';
@@ -55,6 +57,7 @@ export class PropertyService implements OnModuleInit {
     @InjectModel(Favorite.name) private favoriteModel: Model<Favorite>,
     @InjectModel(User.name) private userModel: Model<User>,
     private configService: ConfigService,
+    private mediaService: MediaService,
   ) {
     const cloudinaryUrl =
       this.configService.getOrThrow<string>('CLOUDINARY_URL');
@@ -98,14 +101,17 @@ export class PropertyService implements OnModuleInit {
     propertyData: CreatePropertyDto,
     images: Express.Multer.File[] = [],
   ): Promise<Property> {
-    if ((propertyData.images?.length ?? 0) + images.length > 5) {
-      throw new BadRequestException('A property can have at most 5 photos');
-    }
-
+    const { video, ...fields } = propertyData;
+    const listingVideo = await this.mediaService.nextVideo(
+      null,
+      video,
+      ownerId,
+    );
     const photoUrls = await this.uploadImages(images, propertyData.images);
     return new this.propertyModel({
-      ...propertyData,
+      ...fields,
       images: photoUrls,
+      video: listingVideo ?? null,
       published_at: publishedAtFor(propertyData.status ?? StatusType.PUBLISHED),
       private_key:
         propertyData.visibility === Visibility.PRIVATE
@@ -276,11 +282,13 @@ export class PropertyService implements OnModuleInit {
       return null;
     }
 
-    const updatedPropertyData: updatePropertyDto & {
+    const { video, ...changes } = propertyData;
+    const updatedPropertyData: Omit<updatePropertyDto, 'video'> & {
       published_at?: Date;
       private_key?: string;
+      video?: ListingVideo | null;
     } = {
-      ...propertyData,
+      ...changes,
     };
     if (
       propertyData.visibility === Visibility.PRIVATE &&
@@ -292,42 +300,42 @@ export class PropertyService implements OnModuleInit {
     if (publishedAt) {
       updatedPropertyData.published_at = publishedAt;
     }
-    const requestedImages = propertyData.images ?? property.images;
-    if (requestedImages.length + images.length > 5) {
-      throw new BadRequestException('A property can have at most 5 photos');
-    }
-
     if (propertyData.images || images.length > 0) {
       updatedPropertyData.images = await this.uploadImages(
         images,
-        requestedImages,
+        propertyData.images ?? property.images,
       );
-    }
-    if ((updatedPropertyData.images?.length ?? property.images.length) > 5) {
-      throw new BadRequestException('A property can have at most 5 photos');
     }
     assertPublishable(
       { ...property.toObject(), ...updatedPropertyData },
       PROPERTY_PUBLISH_FIELDS,
     );
+    const listingVideo = await this.mediaService.nextVideo(
+      property.video,
+      video,
+      ownerId,
+    );
+    if (listingVideo !== undefined) {
+      updatedPropertyData.video = listingVideo;
+    }
 
-    return this.propertyModel
+    const updated = await this.propertyModel
       .findOneAndUpdate({ _id: propertyId, ownerId }, updatedPropertyData, {
         new: true,
         runValidators: true,
       })
       .select('+private_key')
       .exec();
+    if (updated && listingVideo !== undefined) {
+      await this.mediaService.removeVideo(property.video?.public_id);
+    }
+    return updated;
   }
 
   private async uploadImages(
     images: Express.Multer.File[],
     imageSources: string[] = [],
   ): Promise<string[]> {
-    if (images.length + imageSources.length > 5) {
-      throw new BadRequestException('You can upload at most 5 images');
-    }
-
     const uploadedFiles = await Promise.all(
       images.map((image) => this.uploadImage(image.buffer)),
     );
@@ -378,8 +386,10 @@ export class PropertyService implements OnModuleInit {
       return null;
     }
 
-    return this.propertyModel
+    const property = await this.propertyModel
       .findOneAndDelete({ _id: propertyId, ownerId })
       .exec();
+    await this.mediaService.removeVideo(property?.video?.public_id);
+    return property;
   }
 }

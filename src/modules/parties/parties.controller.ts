@@ -57,6 +57,7 @@ export class PartiesController {
         description: { type: 'string' },
         location: { type: 'string' },
         images: { type: 'array', items: { type: 'string', format: 'binary' } },
+        video: { type: 'string', example: 'hangaut/parties/videos/abc123' },
         guest_capacity: { type: 'integer' },
         charge_type: { type: 'string', enum: Object.values(ChargeType) },
         party_rules: { type: 'string' },
@@ -76,7 +77,7 @@ export class PartiesController {
     },
   })
   @UseInterceptors(
-    FilesInterceptor('images', 5, {
+    FilesInterceptor('images', undefined, {
       storage: memoryStorage(),
       fileFilter: (_request, file, callback) => {
         if (!file.mimetype.startsWith('image/')) {
@@ -204,7 +205,7 @@ export class PartiesController {
   @UseGuards(AuthGuard('jwt'))
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FilesInterceptor('images', 5, {
+    FilesInterceptor('images', undefined, {
       storage: memoryStorage(),
       fileFilter: (_request, file, callback) => {
         if (!file.mimetype.startsWith('image/')) {
