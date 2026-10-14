@@ -119,10 +119,6 @@ export class PropertyService implements OnModuleInit {
           : undefined,
       ownerId: new Types.ObjectId(ownerId),
     }).save();
-    await this.mediaService.markSaved(
-      property.images,
-      property.video?.public_id,
-    );
     return property;
   }
 
@@ -333,12 +329,6 @@ export class PropertyService implements OnModuleInit {
       .exec();
     if (updated && listingVideo !== undefined) {
       await this.mediaService.removeVideo(property.video?.public_id);
-    }
-    if (updated && (updatedPropertyData.images || listingVideo)) {
-      await this.mediaService.markSaved(
-        updatedPropertyData.images,
-        listingVideo?.public_id,
-      );
     }
     return updated;
   }
