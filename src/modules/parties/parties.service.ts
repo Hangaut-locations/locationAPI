@@ -168,7 +168,7 @@ export class PartiesService implements OnModuleInit {
       ownerId,
     );
     const photoUrls = await this.uploadImages(images, partyData.images);
-    return new this.partyModel({
+    const party = await new this.partyModel({
       ...fields,
       images: photoUrls,
       video: listingVideo ?? null,
@@ -180,6 +180,8 @@ export class PartiesService implements OnModuleInit {
           : undefined,
       ownerId: new Types.ObjectId(ownerId),
     }).save();
+    await this.mediaService.markSaved(party.images, party.video?.public_id);
+    return party;
   }
 
   async findByOwner(ownerId: string): Promise<Party[]> {
@@ -393,6 +395,12 @@ export class PartiesService implements OnModuleInit {
       .exec();
     if (updated && listingVideo !== undefined) {
       await this.mediaService.removeVideo(party.video?.public_id);
+    }
+    if (updated && (updatedPartyData.images || listingVideo)) {
+      await this.mediaService.markSaved(
+        updatedPartyData.images,
+        listingVideo?.public_id,
+      );
     }
     return updated;
   }

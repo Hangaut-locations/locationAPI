@@ -28,7 +28,29 @@ interface CloudinaryVideo {
   tags?: string[];
 }
 
+export type ResourceType = 'image' | 'video';
+
+export interface StoredMedia {
+  public_id: string;
+  secure_url: string;
+  created_at: string;
+}
+
 const ownerTag = (userId: string) => `owner_${userId}`;
+
+/** On every direct upload until a saved listing uses it, see MediaCleanupService. */
+export const UNSAVED_TAG = 'unsaved';
+
+/** "https://res.cloudinary.com/x/image/upload/v12/hangaut/property/abc.jpg" -> "hangaut/property/abc" */
+export const publicIdFromUrl = (url: string): string | null =>
+  url.match(
+    /\/upload\/(?:.+\/)?v\d+\/(hangaut\/[^?#]+)\.\w+(?:[?#].*)?$/,
+  )?.[1] ?? null;
+
+const chunk = <T>(items: T[], size: number): T[][] =>
+  Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
+    items.slice(index * size, (index + 1) * size),
+  );
 
 @Injectable()
 export class MediaService {
@@ -57,7 +79,7 @@ export class MediaService {
       timestamp: String(Math.round(Date.now() / 1000)),
       folder:
         kind === 'video' ? `${FOLDERS[listing]}/videos` : FOLDERS[listing],
-      tags: ownerTag(userId),
+      tags: `${ownerTag(userId)},${UNSAVED_TAG}`,
     };
     if (kind === 'video') {
       params.eager = `${PLAYBACK}/mp4`;
@@ -121,6 +143,50 @@ export class MediaService {
       return undefined;
     }
     return requested ? this.findVideo(requested, userId) : null;
+  }
+
+  /** Takes the unsaved tag off what a listing now uses, so the cleanup leaves it alone. */
+  async markSaved(photos: string[] = [], videoId?: string): Promise<void> {
+    const photoIds = photos
+      .map(publicIdFromUrl)
+      .filter((id): id is string => !!id);
+    await this.untag('image', photoIds);
+    await this.untag('video', videoId ? [videoId] : []);
+  }
+
+  async untag(type: ResourceType, publicIds: string[]): Promise<void> {
+    for (const ids of chunk(publicIds, 1000)) {
+      try {
+        await cloudinary.uploader.remove_tag(UNSAVED_TAG, ids, {
+          resource_type: type,
+        });
+      } catch (error) {
+        this.logger.warn(`Couldn't mark ${type}s as saved: ${String(error)}`);
+      }
+    }
+  }
+
+  async listUnsaved(type: ResourceType): Promise<StoredMedia[]> {
+    const found: StoredMedia[] = [];
+    let cursor: string | undefined;
+    // 5000 is plenty for a day, the rest waits for the next run
+    for (let page = 0; page < 10; page++) {
+      const result = await cloudinary.api.resources_by_tag(UNSAVED_TAG, {
+        resource_type: type,
+        max_results: 500,
+        ...(cursor && { next_cursor: cursor }),
+      });
+      found.push(...(result.resources as StoredMedia[]));
+      cursor = result.next_cursor;
+      if (!cursor) break;
+    }
+    return found;
+  }
+
+  async deleteMany(type: ResourceType, publicIds: string[]): Promise<void> {
+    for (const ids of chunk(publicIds, 100)) {
+      await cloudinary.api.delete_resources(ids, { resource_type: type });
+    }
   }
 
   async removeVideo(publicId?: string): Promise<void> {
