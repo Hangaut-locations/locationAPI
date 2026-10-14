@@ -25,18 +25,39 @@ export class CreatePropertyBookingDto {
   @IsDateString()
   date!: string;
 
-  @ApiProperty({ example: '14:00', description: '24-hour, Nigeria time' })
+  @ApiPropertyOptional({
+    example: '14:00',
+    description:
+      '24-hour, Nigeria time. Needed unless the place charges per day',
+  })
+  @IsOptional()
   @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, {
     message: 'start_time must look like 14:00',
   })
-  start_time!: string;
+  start_time?: string;
 
-  @ApiProperty({ example: 3 })
+  @ApiPropertyOptional({
+    example: 3,
+    description: 'Needed unless the place charges per day',
+  })
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(24)
-  hours!: number;
+  hours?: number;
+
+  @ApiPropertyOptional({
+    example: 2,
+    description:
+      'Needed when the place charges per day. Holds whole days starting from date',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(30)
+  days?: number;
 
   @ApiProperty({ example: 4 })
   @Type(() => Number)

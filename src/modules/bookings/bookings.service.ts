@@ -432,11 +432,10 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     const friends = bookingData.friends ?? [];
     assertFriends(bookingData.guests, friends);
 
-    const startAt = nigeriaDateTime(bookingData.date, bookingData.start_time);
-    if (startAt <= new Date()) {
-      throw fieldError('date', 'Pick a time in the future');
-    }
-    const endAt = new Date(startAt.getTime() + bookingData.hours * HOUR_MS);
+    const { startAt, endAt, hours, dayCount } = this.bookingTimes(
+      property.charge_type,
+      bookingData,
+    );
 
     const blockedDay = blockedDayIn(
       property.blocked_dates ?? [],
@@ -478,13 +477,21 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
       guests: bookingData.guests,
       start_at: startAt,
       end_at: endAt,
-      hours: bookingData.hours,
+      hours,
+      days: dayCount,
       total:
         property.charge_type === PropertyChargeType.HOUR
-          ? price * bookingData.hours
-          : price * bookingData.guests,
+          ? price * hours
+          : property.charge_type === PropertyChargeType.DAY
+            ? price * (dayCount ?? 1)
+            : price * bookingData.guests,
       status: isRequest ? BookingStatus.PENDING : BookingStatus.CONFIRMED,
-      respond_by: isRequest ? startAt : undefined,
+      // A day booking for today has already started, the host gets until the end of it.
+      respond_by: isRequest
+        ? startAt > new Date()
+          ? startAt
+          : endAt
+        : undefined,
       note: bookingData.note,
       tickets: makeTickets(guest, bookingData.guests, friends),
       title: property.title,
@@ -497,6 +504,45 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
 
     this.notifyBooked({ kind: 'home', booking });
     return withCodesIfConfirmed(booking.toObject());
+  }
+
+  /** Places charged per day take whole days, the rest take a start time and hours. */
+  private bookingTimes(
+    chargeType: PropertyChargeType,
+    bookingData: CreatePropertyBookingDto,
+  ) {
+    if (chargeType === PropertyChargeType.DAY) {
+      if (!bookingData.days) {
+        throw fieldError('days', 'Pick how many days you are booking');
+      }
+      const startAt = nigeriaDateTime(bookingData.date, '00:00');
+      if (nigeriaDate(new Date(startAt)) < nigeriaDate(new Date())) {
+        throw fieldError('date', 'Pick today or a day after');
+      }
+      return {
+        startAt,
+        endAt: new Date(startAt.getTime() + bookingData.days * DAY_MS),
+        hours: bookingData.days * 24,
+        dayCount: bookingData.days,
+      };
+    }
+
+    if (!bookingData.start_time) {
+      throw fieldError('start_time', 'Pick a start time');
+    }
+    if (!bookingData.hours) {
+      throw fieldError('hours', 'Pick how many hours you are booking');
+    }
+    const startAt = nigeriaDateTime(bookingData.date, bookingData.start_time);
+    if (startAt <= new Date()) {
+      throw fieldError('date', 'Pick a time in the future');
+    }
+    return {
+      startAt,
+      endAt: new Date(startAt.getTime() + bookingData.hours * HOUR_MS),
+      hours: bookingData.hours,
+      dayCount: undefined,
+    };
   }
 
   /** Upcoming confirmed times for a property, without any guest details. */
@@ -652,7 +698,13 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
         .exec(),
       // Older requests have no respond_by, they go when the booking starts.
       this.propertyBookingModel
-        .find({ status: BookingStatus.PENDING, start_at: { $lte: now } })
+        .find({
+          status: BookingStatus.PENDING,
+          $or: [
+            { respond_by: { $lte: now } },
+            { respond_by: { $exists: false }, start_at: { $lte: now } },
+          ],
+        })
         .select('_id')
         .lean()
         .exec(),

@@ -68,10 +68,26 @@ const partyWhen = (booking: PartyBooking) => {
     : dates;
 };
 
+const nigeriaDay = (date: Date) =>
+  new Date(date).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Africa/Lagos',
+  });
+
+const homeWhen = (booking: PropertyBooking) => {
+  if (!booking.days) {
+    return `${nigeriaTime(booking.start_at)}, ${plural(booking.hours, 'hour')}`;
+  }
+  const first = nigeriaDay(booking.start_at);
+  if (booking.days === 1) return `${first}, all day`;
+  const last = nigeriaDay(new Date(new Date(booking.end_at).getTime() - 1));
+  return `${first} to ${last} (${plural(booking.days, 'day')})`;
+};
+
 const when = (item: AnyBooking) =>
-  item.kind === 'party'
-    ? partyWhen(item.booking)
-    : `${nigeriaTime(item.booking.start_at)}, ${plural(item.booking.hours, 'hour')}`;
+  item.kind === 'party' ? partyWhen(item.booking) : homeWhen(item.booking);
 
 const listingRows = (item: AnyBooking): Row[] => [
   {

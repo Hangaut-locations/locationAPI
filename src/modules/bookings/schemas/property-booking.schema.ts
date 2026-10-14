@@ -26,6 +26,10 @@ export class PropertyBooking extends Document {
   @Prop({ required: true, min: 1 })
   hours!: number;
 
+  // Only for places charged per day, the booking holds these whole days.
+  @Prop({ required: false, min: 1 })
+  days?: number;
+
   @Prop({ required: true, min: 0 })
   total!: number;
 
