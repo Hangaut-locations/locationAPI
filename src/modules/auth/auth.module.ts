@@ -8,12 +8,15 @@ import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthSession, AuthSessionSchema } from './schemas/auth-session.schema';
+import { EmailCode, EmailCodeSchema } from './schemas/email-code.schema';
+import { EmailCodesService } from './email-codes.service';
 
 @Module({
   imports: [
     UsersModule,
     MongooseModule.forFeature([
       { name: AuthSession.name, schema: AuthSessionSchema },
+      { name: EmailCode.name, schema: EmailCodeSchema },
     ]),
     PassportModule,
     JwtModule.registerAsync({
@@ -24,7 +27,7 @@ import { AuthSession, AuthSessionSchema } from './schemas/auth-session.schema';
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, EmailCodesService],
   controllers: [AuthController],
 })
 export class AuthModule {}
