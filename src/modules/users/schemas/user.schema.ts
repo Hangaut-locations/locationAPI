@@ -35,6 +35,10 @@ export class User extends Document {
   @Prop({ default: '' })
   bio!: string;
 
+  /** Missing on accounts made before codes were sent, they confirm on their next login. */
+  @Prop()
+  emailVerified?: boolean;
+
   @Prop({ default: Date.now })
   createdAt!: Date;
 

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -46,10 +47,20 @@ export class UsersController {
     @Req() request: AuthenticatedRequest,
     @Body() updateProfileDto: UpdateProfileDto,
   ) {
-    const user = await this.usersService.update(
-      request.user._id,
-      updateProfileDto,
-    );
+    const { email, ...changes } = updateProfileDto;
+    const current = await this.usersService.findById(request.user._id);
+    if (!current) {
+      throw new NotFoundException('User profile not found');
+    }
+    if (email && email.trim().toLowerCase() !== current.email.toLowerCase()) {
+      throw new BadRequestException({
+        message:
+          'To change your email, confirm the code we send to the new address',
+        data: { field: 'email' },
+      });
+    }
+
+    const user = await this.usersService.update(request.user._id, changes);
     if (!user) {
       throw new NotFoundException('User profile not found');
     }
