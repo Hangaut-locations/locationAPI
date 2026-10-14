@@ -16,8 +16,8 @@ import {
   StoredMedia,
 } from './media.service';
 
-/** Hosts get this long to finish a listing before their unsaved uploads go. */
-const KEEP_UNSAVED_HOURS = 24;
+/** Hosts get a week to save a listing before uploads it doesn't use go. Has to match the note in the site's photo steps. */
+const KEEP_UNSAVED_HOURS = 7 * 24;
 
 const escapeRegex = (text: string) =>
   text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
