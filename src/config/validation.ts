@@ -22,6 +22,8 @@ export default Joi.object({
   SITE_URL: Joi.string().default('https://hangaut.pedxo.com'),
   // how often unsaved listing uploads get cleaned out of Cloudinary
   MEDIA_CLEANUP_MINUTES: Joi.number().min(0.05).default(1440),
+  // where chat reports get emailed, they're saved in chat_reports either way
+  REPORTS_EMAIL: Joi.string().email().optional(),
   ENVIRONMENT: Joi.string()
     .valid('development', 'production', 'test')
     .default(process.env.ENVIRONMENT || 'development'),

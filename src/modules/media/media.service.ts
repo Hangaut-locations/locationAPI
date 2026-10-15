@@ -11,6 +11,8 @@ const FOLDERS: Record<MediaListing, string> = {
   party: 'hangaut/parties',
 };
 
+const CHAT_FOLDER = 'hangaut/chat';
+
 // Phones record HEVC .mov files a lot of browsers can't play, so guests get an mp4 copy.
 const PLAYBACK = 'c_limit,w_1280,q_auto,vc_h264';
 
@@ -67,16 +69,41 @@ export class MediaService {
     listing: MediaListing,
   ): UploadSignature {
     const params: Record<string, string> = {
-      timestamp: String(Math.round(Date.now() / 1000)),
       folder:
         kind === 'video' ? `${FOLDERS[listing]}/videos` : FOLDERS[listing],
-      tags: ownerTag(userId),
     };
     if (kind === 'video') {
       params.eager = `${PLAYBACK}/mp4`;
       params.eager_async = 'true';
     }
+    return this.sign(userId, kind, params);
+  }
 
+  /** Chat photos live outside the listing folders, so the listing cleanup never touches them. */
+  signChatPhoto(userId: string): UploadSignature {
+    return this.sign(userId, 'photo', { folder: CHAT_FOLDER });
+  }
+
+  /** Smaller, auto-format copy of a chat photo. */
+  chatPhotoUrl(publicId: string): string {
+    return cloudinary.url(publicId, {
+      resource_type: 'image',
+      secure: true,
+      transformation: [{ crop: 'limit', width: 1600, quality: 'auto' }],
+      format: 'jpg',
+    });
+  }
+
+  private sign(
+    userId: string,
+    kind: MediaKind,
+    extra: Record<string, string>,
+  ): UploadSignature {
+    const params: Record<string, string> = {
+      timestamp: String(Math.round(Date.now() / 1000)),
+      tags: ownerTag(userId),
+      ...extra,
+    };
     const { api_key, api_secret } = cloudinary.config();
     return {
       upload_url: cloudinary.utils.api_url('upload', {
