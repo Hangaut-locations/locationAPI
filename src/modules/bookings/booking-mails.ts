@@ -168,6 +168,7 @@ export const requestMails = (
   guest: Person,
   host: Person,
   siteUrl: string,
+  privateParty = false,
 ): Mail[] => {
   const booker = fullName(guest);
   const link = links(item, siteUrl);
@@ -180,8 +181,9 @@ export const requestMails = (
         item.kind === 'party'
           ? `${booker} wants ${plural(guests, 'spot')} at ${title}`
           : `${booker} wants to book ${title}`,
-      intro:
-        'Log in to Hangaut and accept or decline it on your reservations page. Once you accept, everyone in the group gets their own code by email.',
+      intro: privateParty
+        ? "This party is private, so the link alone doesn't let anyone in. Log in to Hangaut and accept or decline it on your reservations page. Once you accept, everyone in the group gets their own code by email."
+        : 'Log in to Hangaut and accept or decline it on your reservations page. Once you accept, everyone in the group gets their own code by email.',
       rows: [
         ...guestContact(guest),
         ...listingRows(item),
