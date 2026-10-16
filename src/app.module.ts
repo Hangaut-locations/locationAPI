@@ -13,6 +13,7 @@ import { BookingsModule } from './modules/bookings/bookings.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { MailModule } from './modules/mail/mail.module';
 import { MediaModule } from './modules/media/media.module';
+import { ChatModule } from './modules/chat/chat.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { MediaModule } from './modules/media/media.module';
     BookingsModule,
     ReviewsModule,
     MediaModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],
