@@ -12,7 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomInt } from 'crypto';
 import { isValidObjectId, Model, Types } from 'mongoose';
-import { canOpenListing } from '../listings/visibility';
+import { canOpenListing, Visibility } from '../listings/visibility';
 import { Mail, MailService } from '../mail/mail.service';
 import { User } from '../users/schemas/user.schema';
 import {
@@ -268,11 +268,11 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Instant bookings send codes now, requests wait for the host. */
-  private notifyBooked(item: AnyBooking) {
+  private notifyBooked(item: AnyBooking, privateParty = false) {
     this.notify(item, (guest, host) =>
       item.booking.status === BookingStatus.CONFIRMED
         ? confirmedMails(item, guest, host, this.siteUrl, false)
-        : requestMails(item, guest, host, this.siteUrl),
+        : requestMails(item, guest, host, this.siteUrl, privateParty),
     );
   }
 
@@ -371,7 +371,9 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     const guest = await this.findPerson(guestId);
     if (!guest) throw new NotFoundException('User not found');
 
-    const isRequest = party.booking_setting === 'approve-first';
+    // A private link is not enough. The host has to accept before anyone gets a code.
+    const isPrivate = party.visibility === Visibility.PRIVATE;
+    const isRequest = party.booking_setting === 'approve-first' || isPrivate;
     const price = party.price ?? 0;
     const booking = await new this.partyBookingModel({
       partyId: party._id,
@@ -400,7 +402,7 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
       price,
     }).save();
 
-    this.notifyBooked({ kind: 'party', booking });
+    this.notifyBooked({ kind: 'party', booking }, isPrivate);
     return withCodesIfConfirmed(booking.toObject());
   }
 
