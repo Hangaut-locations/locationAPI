@@ -39,6 +39,8 @@ const PERSON_FIELDS = 'firstName lastName city state country';
 const PAGE_SIZE = 40;
 // opened the chat this recently = probably still in it, so no email
 const ACTIVE_MS = 5 * 60_000;
+/** A text message can be edited only while it is younger than this. */
+const EDIT_MS = 60 * 60_000;
 
 export interface ChatPerson {
   _id: Types.ObjectId;
@@ -60,11 +62,14 @@ interface StoredConversation {
 
 interface StoredMessage {
   _id: Types.ObjectId;
+  conversationId: Types.ObjectId;
   senderId: Types.ObjectId;
   kind: MessageKind;
   text?: string;
   photo?: string;
   location?: SharedLocation;
+  editedAt?: Date;
+  deletedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -329,21 +334,25 @@ export class ChatService {
   }
 
   private toMessage(message: StoredMessage, userId: string) {
+    const gone = !!message.deletedAt;
     const liveUntil = message.location?.live_until;
     return {
       _id: message._id,
       kind: message.kind,
-      text: message.text ?? '',
-      photo: message.photo ?? null,
-      location: message.location
-        ? {
-            lat: message.location.lat,
-            lng: message.location.lng,
-            live_until: liveUntil ?? null,
-            live: !!liveUntil && liveUntil > new Date(),
-          }
-        : null,
+      text: gone ? '' : (message.text ?? ''),
+      photo: gone ? null : (message.photo ?? null),
+      location:
+        !gone && message.location
+          ? {
+              lat: message.location.lat,
+              lng: message.location.lng,
+              live_until: liveUntil ?? null,
+              live: !!liveUntil && liveUntil > new Date(),
+            }
+          : null,
       mine: sameId(message.senderId, userId),
+      editedAt: message.editedAt ?? null,
+      deleted: !!message.deletedAt,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
     };
@@ -376,6 +385,7 @@ export class ChatService {
         .lean<StoredMessage[]>()
         .exec();
     } else {
+      filter.deletedAt = { $exists: false };
       if (query.before) {
         const before = await this.messageModel
           .findOne({ _id: query.before, conversationId: conversation._id })
@@ -545,6 +555,96 @@ export class ChatService {
     return this.liveLocation(messageId, userId, {
       'location.live_until': new Date(),
     });
+  }
+
+  /** Change the text of my own message, only in the first hour. */
+  async editMessage(messageId: string, userId: string, text: string) {
+    const existing = await this.ownMessage(messageId, userId);
+    if (existing.kind !== MessageKind.TEXT) {
+      throw new BadRequestException('Only a text message can be edited');
+    }
+    if (Date.now() - new Date(existing.createdAt).getTime() >= EDIT_MS) {
+      throw new BadRequestException(
+        'You can only edit a message within an hour',
+      );
+    }
+    const message = await this.messageModel
+      .findByIdAndUpdate(
+        existing._id,
+        { $set: { text, editedAt: new Date() } },
+        { new: true },
+      )
+      .lean<StoredMessage>()
+      .exec();
+    await this.syncLastMessage(existing.conversationId);
+    return this.toMessage(message!, userId);
+  }
+
+  /** Remove one of my messages, no matter how old. The other chat drops it on poll. */
+  async deleteMessage(messageId: string, userId: string) {
+    const existing = await this.ownMessage(messageId, userId);
+    const message = await this.messageModel
+      .findByIdAndUpdate(
+        existing._id,
+        {
+          $set: { deletedAt: new Date() },
+          $unset: { text: '', photo: '', location: '' },
+        },
+        { new: true },
+      )
+      .lean<StoredMessage>()
+      .exec();
+    await this.syncLastMessage(existing.conversationId);
+    return this.toMessage(message!, userId);
+  }
+
+  private async ownMessage(messageId: string, userId: string) {
+    const message =
+      isValidObjectId(messageId) &&
+      (await this.messageModel
+        .findOne({
+          _id: messageId,
+          senderId: toId(userId),
+          deletedAt: { $exists: false },
+        })
+        .lean<StoredMessage>()
+        .exec());
+    if (!message) throw new NotFoundException("That message isn't there");
+    return message;
+  }
+
+  /** Keep the inbox preview on the newest message that is still there. */
+  private async syncLastMessage(conversationId: Types.ObjectId) {
+    const last = await this.messageModel
+      .findOne({ conversationId, deletedAt: { $exists: false } })
+      .sort({ createdAt: -1 })
+      .lean<StoredMessage>()
+      .exec();
+    if (!last) {
+      await this.conversationModel
+        .updateOne(
+          { _id: conversationId },
+          { $unset: { lastMessage: '' }, $set: { lastMessageAt: null } },
+        )
+        .exec();
+      return;
+    }
+    await this.conversationModel
+      .updateOne(
+        { _id: conversationId },
+        {
+          $set: {
+            lastMessage: {
+              senderId: last.senderId,
+              kind: last.kind,
+              text: last.text ?? '',
+              at: last.createdAt,
+            },
+            lastMessageAt: last.createdAt,
+          },
+        },
+      )
+      .exec();
   }
 
   async markRead(conversationId: string, userId: string) {

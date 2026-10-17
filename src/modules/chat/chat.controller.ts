@@ -15,6 +15,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ChatService } from './chat.service';
 import {
+  EditMessageDto,
   LocationDto,
   MessagesQuery,
   ReportDto,
@@ -92,6 +93,26 @@ export class ChatController {
   @ApiOperation({ summary: 'Mark the chat as read (shows "Seen" to them)' })
   read(@Req() request: AuthenticatedRequest, @Param('id') id: string) {
     return this.chatService.markRead(id, me(request));
+  }
+
+  @Patch('messages/:id')
+  @ApiOperation({
+    summary: 'Edit my text message. Only within an hour of sending it',
+  })
+  edit(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: EditMessageDto,
+  ) {
+    return this.chatService.editMessage(id, me(request), dto.text);
+  }
+
+  @Delete('messages/:id')
+  @ApiOperation({
+    summary: 'Delete one of my messages, however old it is',
+  })
+  remove(@Req() request: AuthenticatedRequest, @Param('id') id: string) {
+    return this.chatService.deleteMessage(id, me(request));
   }
 
   @Patch('messages/:id/location')
