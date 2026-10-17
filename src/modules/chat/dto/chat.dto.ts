@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  MinLength,
   Matches,
   MaxLength,
   ValidateNested,
@@ -98,6 +99,15 @@ export class SendMessageDto {
   @ValidateNested()
   @Type(() => SendLocationDto)
   location?: SendLocationDto;
+}
+
+export class EditMessageDto {
+  @ApiProperty({ example: 'Saturday works better' })
+  @Transform(trim)
+  @IsString()
+  @MinLength(1, { message: 'Write something first' })
+  @MaxLength(MESSAGE_MAX_LENGTH)
+  text!: string;
 }
 
 export class ReportDto {

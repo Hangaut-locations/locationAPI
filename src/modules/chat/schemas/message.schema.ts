@@ -45,6 +45,14 @@ export class Message extends Document {
   @Prop({ type: SharedLocationSchema })
   location?: SharedLocation;
 
+  /** Set once the sender changes the text. The hour limit is still counted from createdAt. */
+  @Prop()
+  editedAt?: Date;
+
+  /** Soft delete so the other person's open chat drops it on the next poll. */
+  @Prop()
+  deletedAt?: Date;
+
   createdAt!: Date;
   updatedAt!: Date;
 }
