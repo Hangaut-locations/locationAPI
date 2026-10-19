@@ -14,6 +14,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { MailModule } from './modules/mail/mail.module';
 import { MediaModule } from './modules/media/media.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { LiveModule } from './modules/live/live.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ChatModule } from './modules/chat/chat.module';
     ReviewsModule,
     MediaModule,
     ChatModule,
+    LiveModule,
   ],
   controllers: [AppController],
   providers: [AppService],
