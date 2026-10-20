@@ -71,6 +71,10 @@ export class PartyBooking extends Document {
   @Prop({ min: 0 })
   price?: number;
 
+  /** Which extra ticket they bought. Blank means the party's main price. */
+  @Prop({ required: false, trim: true })
+  ticket_name?: string;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

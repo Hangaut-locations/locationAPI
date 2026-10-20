@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsDateString,
   IsEnum,
@@ -11,12 +12,52 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
+  MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { RequiredUnlessDraft } from '../../listings/draft';
 import { VIDEO_ID_PATTERN } from '../../listings/video';
 import { Visibility } from '../../listings/visibility';
 import { ChargeType, StatusType } from '../schemas/party.schema';
+
+/** The create form sends this list as one JSON string. */
+const toTicketOptions = (value: unknown): unknown => {
+  if (value == null || value === '') return [];
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return value;
+    }
+  }
+  return value;
+};
+
+export class TicketOptionDto {
+  @ApiProperty({ example: 'VIP' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  name!: string;
+
+  @ApiProperty({ example: 80, minimum: 0 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price!: number;
+
+  @ApiProperty({ example: 20, minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  available!: number;
+}
 
 export class CreatePartyDto {
   @ApiProperty({ example: 'Summer rooftop party' })
@@ -113,6 +154,23 @@ export class CreatePartyDto {
   @IsNumber()
   @Min(0)
   price!: number;
+
+  @ApiPropertyOptional({
+    type: [TicketOptionDto],
+    description:
+      'Extra tickets the host is selling, each with its own price and how many are for sale. Send a JSON string from the form.',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    const parsed = toTicketOptions(value);
+    return Array.isArray(parsed)
+      ? plainToInstance(TicketOptionDto, parsed)
+      : parsed;
+  })
+  @IsArray()
+  @ArrayMaxSize(6)
+  @ValidateNested({ each: true })
+  ticket_options?: TicketOptionDto[];
 
   // @ApiProperty({ example: '' })
   @RequiredUnlessDraft()

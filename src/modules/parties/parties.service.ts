@@ -30,6 +30,8 @@ import {
   FavoriteTargetType,
 } from '../favorites/schemas/favorite.schema';
 import { ListingVideo } from '../listings/video';
+import { BookingStatus } from '../bookings/schemas/booking-status';
+import { PartyBooking } from '../bookings/schemas/party-booking.schema';
 import { MediaService } from '../media/media.service';
 import { User } from '../users/schemas/user.schema';
 import { findPublicHost, PublicHost } from '../users/host';
@@ -73,6 +75,8 @@ export class PartiesService implements OnModuleInit {
     @InjectModel(Party.name) private partyModel: Model<Party>,
     @InjectModel(Favorite.name) private favoriteModel: Model<Favorite>,
     @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(PartyBooking.name)
+    private partyBookingModel: Model<PartyBooking>,
     private configService: ConfigService,
     private mediaService: MediaService,
   ) {
@@ -154,12 +158,71 @@ export class PartiesService implements OnModuleInit {
     }
   }
 
+  /** How many of each extra ticket are still for sale. */
+  private async choicesLeft(
+    partyId: Types.ObjectId,
+    options: { name: string; price: number; available: number }[],
+  ) {
+    if (!options.length) return [];
+    const rows = await this.partyBookingModel.aggregate<{
+      _id: string;
+      guests: number;
+    }>([
+      {
+        $match: {
+          partyId,
+          status: BookingStatus.CONFIRMED,
+          ticket_name: { $type: 'string', $ne: '' },
+        },
+      },
+      {
+        $group: {
+          _id: { $toLower: '$ticket_name' },
+          guests: { $sum: '$guests' },
+        },
+      },
+    ]);
+    const sold = new Map(rows.map((row) => [row._id, row.guests]));
+    return options.map((option) => ({
+      name: option.name,
+      price: option.price,
+      available: option.available,
+      left: Math.max(
+        0,
+        option.available - (sold.get(option.name.toLowerCase()) ?? 0),
+      ),
+    }));
+  }
+
+  private assertTicketOptions(
+    capacity: number | undefined,
+    options: { name: string; available: number }[] | undefined,
+  ) {
+    const seen = new Set<string>();
+    for (const option of options ?? []) {
+      const key = option.name.trim().toLowerCase();
+      if (seen.has(key)) {
+        throw new BadRequestException('Each ticket needs its own name');
+      }
+      seen.add(key);
+      if (capacity && option.available > capacity) {
+        throw new BadRequestException(
+          `${option.name} has more tickets than the party can hold`,
+        );
+      }
+    }
+  }
+
   async create(
     ownerId: string,
     partyData: CreatePartyDto,
     images: Express.Multer.File[] = [],
   ): Promise<Party> {
     this.assertDateOrder(partyData.start_date, partyData.end_date);
+    this.assertTicketOptions(
+      partyData.guest_capacity,
+      partyData.ticket_options,
+    );
 
     const { video, ...fields } = partyData;
     const listingVideo = await this.mediaService.nextVideo(
@@ -220,8 +283,16 @@ export class PartiesService implements OnModuleInit {
     }
 
     const host = await findPublicHost(this.userModel, party.ownerId);
+    const ticket_options = await this.choicesLeft(
+      party._id,
+      party.ticket_options ?? [],
+    );
     const { private_key, ...shared } = party.toObject();
-    return { ...(isOwner ? { ...shared, private_key } : shared), host };
+    return {
+      ...(isOwner ? { ...shared, private_key } : shared),
+      ticket_options,
+      host,
+    };
   }
 
   /** New key for the private link, old links stop working. */
@@ -344,6 +415,10 @@ export class PartiesService implements OnModuleInit {
     this.assertDateOrder(
       partyData.start_date ?? party.start_date,
       partyData.end_date ?? party.end_date,
+    );
+    this.assertTicketOptions(
+      partyData.guest_capacity ?? party.guest_capacity,
+      partyData.ticket_options ?? party.ticket_options,
     );
 
     const { video, ...changes } = partyData;
