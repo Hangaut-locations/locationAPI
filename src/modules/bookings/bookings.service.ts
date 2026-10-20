@@ -374,7 +374,11 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     // A private link is not enough. The host has to accept before anyone gets a code.
     const isPrivate = party.visibility === Visibility.PRIVATE;
     const isRequest = party.booking_setting === 'approve-first' || isPrivate;
-    const price = party.price ?? 0;
+    const freeRsvp = String(party.is_ticket_sales) === 'false';
+    if (bookingData.without_ticket && !freeRsvp) {
+      throw new BadRequestException('This party needs a ticket');
+    }
+    const price = bookingData.without_ticket ? 0 : (party.price ?? 0);
     const booking = await new this.partyBookingModel({
       partyId: party._id,
       guestId: new Types.ObjectId(guestId),

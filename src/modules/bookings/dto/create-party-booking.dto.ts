@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsMongoId,
   IsOptional,
@@ -71,4 +72,12 @@ export class CreatePartyBookingDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Reserve a free spot. Only works when the host turned ticket sales off',
+  })
+  @IsOptional()
+  @IsBoolean()
+  without_ticket?: boolean;
 }
