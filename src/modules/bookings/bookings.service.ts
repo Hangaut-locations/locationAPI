@@ -378,7 +378,31 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     if (bookingData.without_ticket && !freeRsvp) {
       throw new BadRequestException('This party needs a ticket');
     }
-    const price = bookingData.without_ticket ? 0 : (party.price ?? 0);
+    let price = party.price ?? 0;
+    let ticketName: string | undefined;
+    const picked = bookingData.ticket_name;
+    if (!bookingData.without_ticket && picked) {
+      const option = (party.ticket_options ?? []).find(
+        (item) => item.name.toLowerCase() === picked.toLowerCase(),
+      );
+      if (!option) {
+        throw fieldError('ticket_name', 'That ticket is not on this party');
+      }
+      const sold =
+        (await this.soldByTicket(party._id)).get(option.name.toLowerCase()) ??
+        0;
+      const left = option.available - sold;
+      if (bookingData.guests > left) {
+        throw new ConflictException(
+          left > 0
+            ? `Only ${spotsText(left)} of ${option.name} left`
+            : `${option.name} is sold out`,
+        );
+      }
+      price = option.price;
+      ticketName = option.name;
+    }
+    if (bookingData.without_ticket) price = 0;
     const booking = await new this.partyBookingModel({
       partyId: party._id,
       guestId: new Types.ObjectId(guestId),
@@ -404,6 +428,7 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
       start_time: party.start_time,
       charge_type: party.charge_type,
       price,
+      ticket_name: ticketName,
     }).save();
 
     this.notifyBooked({ kind: 'party', booking }, isPrivate);
@@ -782,14 +807,59 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /** How many confirmed spots each extra ticket has used. */
+  private async soldByTicket(partyId: Types.ObjectId) {
+    const rows = await this.partyBookingModel.aggregate<{
+      _id: string;
+      guests: number;
+    }>([
+      {
+        $match: {
+          partyId,
+          status: BookingStatus.CONFIRMED,
+          ticket_name: { $type: 'string', $ne: '' },
+        },
+      },
+      {
+        $group: {
+          _id: { $toLower: '$ticket_name' },
+          guests: { $sum: '$guests' },
+        },
+      },
+    ]);
+    return new Map(rows.map((row) => [row._id, row.guests]));
+  }
+
   /** Requests don't hold spots, so the party may have filled up since. */
   private async assertPartyRoom(booking: PartyBooking) {
     const spotsLeft = await this.partySpotsLeft(booking.partyId, booking._id);
-    if (spotsLeft === undefined || booking.guests <= spotsLeft) return;
+    if (spotsLeft !== undefined && booking.guests > spotsLeft) {
+      throw new ConflictException(
+        spotsLeft > 0
+          ? `Only ${spotsText(spotsLeft)} left, not enough for this group of ${booking.guests}`
+          : "The party is full, so this request can't be accepted",
+      );
+    }
+    if (!booking.ticket_name) return;
+    const party = await this.partyModel
+      .findById(booking.partyId)
+      .select('ticket_options')
+      .lean()
+      .exec();
+    const option = (party?.ticket_options ?? []).find(
+      (item) => item.name.toLowerCase() === booking.ticket_name?.toLowerCase(),
+    );
+    if (!option) return;
+    const sold =
+      (await this.soldByTicket(booking.partyId)).get(
+        option.name.toLowerCase(),
+      ) ?? 0;
+    const left = option.available - sold;
+    if (booking.guests <= left) return;
     throw new ConflictException(
-      spotsLeft > 0
-        ? `Only ${spotsText(spotsLeft)} left, not enough for this group of ${booking.guests}`
-        : "The party is full, so this request can't be accepted",
+      left > 0
+        ? `Only ${spotsText(left)} of ${option.name} left, not enough for this group of ${booking.guests}`
+        : `${option.name} is sold out, so this request can't be accepted`,
     );
   }
 
@@ -805,8 +875,42 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
       .select('_id')
       .lean()
       .exec();
+    const alreadyDeclined = new Set(
+      tooBig.map((request) => String(request._id)),
+    );
     for (const request of tooBig) {
       await this.declineRequest('party', request._id, 'full');
+    }
+
+    const party = await this.partyModel
+      .findById(partyId)
+      .select('ticket_options')
+      .lean()
+      .exec();
+    const options = party?.ticket_options ?? [];
+    if (!options.length) return;
+    const sold = await this.soldByTicket(partyId);
+    const named = await this.partyBookingModel
+      .find({
+        partyId,
+        status: BookingStatus.PENDING,
+        ticket_name: { $type: 'string', $ne: '' },
+      })
+      .select('_id guests ticket_name')
+      .lean()
+      .exec();
+    for (const request of named) {
+      if (alreadyDeclined.has(String(request._id))) continue;
+      const option = options.find(
+        (item) =>
+          item.name.toLowerCase() === request.ticket_name?.toLowerCase(),
+      );
+      if (!option) continue;
+      const left =
+        option.available - (sold.get(option.name.toLowerCase()) ?? 0);
+      if (request.guests > left) {
+        await this.declineRequest('party', request._id, 'full');
+      }
     }
   }
 

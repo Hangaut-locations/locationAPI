@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import {
+  PartyBooking,
+  PartyBookingSchema,
+} from '../bookings/schemas/party-booking.schema';
 import { Favorite, FavoriteSchema } from '../favorites/schemas/favorite.schema';
 import { MediaModule } from '../media/media.module';
 import { User, UserSchema } from '../users/schemas/user.schema';
@@ -14,6 +18,9 @@ import { PartiesService } from './parties.service';
       { name: Favorite.name, schema: FavoriteSchema },
     ]),
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    MongooseModule.forFeature([
+      { name: PartyBooking.name, schema: PartyBookingSchema },
+    ]),
     MediaModule,
   ],
   controllers: [PartiesController],

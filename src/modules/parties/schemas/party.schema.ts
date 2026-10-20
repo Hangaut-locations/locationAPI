@@ -43,6 +43,21 @@ export enum PartyType {
   ISLANDS = 'Islands',
 }
 
+@Schema({ _id: false })
+export class TicketOption {
+  @Prop({ required: true, trim: true })
+  name!: string;
+
+  @Prop({ required: true, min: 0 })
+  price!: number;
+
+  /** How many of this ticket the host is selling. */
+  @Prop({ required: true, min: 1 })
+  available!: number;
+}
+
+export const TicketOptionSchema = SchemaFactory.createForClass(TicketOption);
+
 @Schema({ timestamps: true })
 export class Party extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
@@ -98,6 +113,10 @@ export class Party extends Document {
 
   @Prop({ required: false, min: 0 })
   price!: number;
+
+  /** Extra tickets besides the main price. Empty means guests just pay that price. */
+  @Prop({ type: [TicketOptionSchema], default: [] })
+  ticket_options!: TicketOption[];
 
   @Prop({ required: false, min: 0 })
   beds!: number;
