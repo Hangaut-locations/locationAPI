@@ -84,6 +84,42 @@ export class MediaService {
     return this.sign(userId, 'photo', { folder: CHAT_FOLDER });
   }
 
+  /** Story files live in their own folder and disappear with the story after 24 hours. */
+  signStory(userId: string, kind: MediaKind): UploadSignature {
+    const params: Record<string, string> = {
+      folder: kind === 'video' ? 'hangaut/stories/videos' : 'hangaut/stories',
+    };
+    if (kind === 'video') {
+      params.eager = `${PLAYBACK}/mp4`;
+      params.eager_async = 'true';
+    }
+    return this.sign(userId, kind, params);
+  }
+
+  /** Confirms a story photo was uploaded by this user. */
+  async findStoryPhoto(
+    publicId: string,
+    userId: string,
+  ): Promise<{ publicId: string; url: string }> {
+    let image: { public_id?: string; tags?: string[] } | undefined;
+    try {
+      image = (await cloudinary.api.resource(publicId, {
+        resource_type: 'image',
+      })) as { public_id?: string; tags?: string[] };
+    } catch {
+      image = undefined;
+    }
+    if (
+      !image?.public_id?.startsWith('hangaut/stories/') ||
+      !image.tags?.includes(ownerTag(userId))
+    ) {
+      throw new BadRequestException(
+        "We couldn't find that photo, upload it again",
+      );
+    }
+    return { publicId: image.public_id, url: this.chatPhotoUrl(image.public_id) };
+  }
+
   /** Smaller, auto-format copy of a chat photo. */
   chatPhotoUrl(publicId: string): string {
     return cloudinary.url(publicId, {
