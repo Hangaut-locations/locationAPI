@@ -15,6 +15,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { MediaModule } from './modules/media/media.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { LiveModule } from './modules/live/live.module';
+import { StoriesModule } from './modules/stories/stories.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { LiveModule } from './modules/live/live.module';
     MediaModule,
     ChatModule,
     LiveModule,
+    StoriesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
