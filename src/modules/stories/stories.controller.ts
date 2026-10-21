@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import {
@@ -22,6 +23,10 @@ import { StoriesService } from './stories.service';
 
 interface AuthenticatedRequest extends Request {
   user: { _id: string };
+}
+
+interface MaybeUserRequest extends Request {
+  user?: { _id: string };
 }
 
 @ApiTags('stories')
@@ -71,9 +76,15 @@ export class StoriesController {
   }
 
   @Post(':id/comments')
-  @ApiOperation({ summary: 'A public comment on a story' })
-  comment(@Param('id') id: string, @Body() dto: StoryCommentDto) {
-    return this.stories.comment(id, dto);
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'A comment on a story. A signed-in name comes from the account.' })
+  comment(
+    @Req() request: MaybeUserRequest,
+    @Param('id') id: string,
+    @Body() dto: StoryCommentDto,
+  ) {
+    const userId = request.user?._id ? String(request.user._id) : undefined;
+    return this.stories.comment(id, dto, userId);
   }
 
   @Post(':id/love')

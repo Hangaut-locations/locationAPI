@@ -39,6 +39,9 @@ export class StoryComment extends Document {
   @Prop({ required: true })
   name!: string;
 
+  @Prop()
+  location?: string;
+
   @Prop({ required: true })
   text!: string;
 

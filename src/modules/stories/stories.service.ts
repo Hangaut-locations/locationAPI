@@ -132,6 +132,7 @@ export class StoriesService {
           comments: (commentMap.get(String(item._id)) ?? []).map((comment) => ({
             id: String(comment._id),
             name: comment.name,
+            location: comment.location || undefined,
             text: comment.text,
             createdAt: comment.createdAt,
           })),
@@ -154,7 +155,7 @@ export class StoriesService {
     return { ok: true };
   }
 
-  async comment(storyId: string, dto: StoryCommentDto) {
+  async comment(storyId: string, dto: StoryCommentDto, userId?: string) {
     const story = await this.open(storyId);
     const recent = await this.comments
       .findOne({ storyId: story._id, viewerId: dto.viewerId })
@@ -166,16 +167,25 @@ export class StoriesService {
     ) {
       throw new BadRequestException('Wait a second before another comment');
     }
+    let name = (dto.name || 'Guest').slice(0, 24);
+    if (userId) {
+      const user = await this.users.findById(userId).select('firstName lastName').lean();
+      const account = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim();
+      if (account) name = account.slice(0, 48);
+    }
+    const location = dto.location?.slice(0, 40) || undefined;
     const saved = await this.comments.create({
       storyId: story._id,
       viewerId: dto.viewerId,
-      name: dto.name || 'Guest',
+      name,
+      location,
       text: dto.text,
       expiresAt: story.expiresAt,
     });
     return {
       id: String(saved._id),
       name: saved.name,
+      location: saved.location || undefined,
       text: saved.text,
       createdAt: saved.createdAt,
     };
