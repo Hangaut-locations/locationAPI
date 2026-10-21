@@ -39,6 +39,13 @@ export class StoryCommentDto extends StoryViewerDto {
   @MaxLength(24)
   name?: string;
 
+  @ApiPropertyOptional({ example: 'Lekki' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(40)
+  location?: string;
+
   @ApiProperty({ example: 'Looks fun' })
   @Transform(trim)
   @IsString()
