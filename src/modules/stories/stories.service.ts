@@ -10,7 +10,7 @@ import { User } from '../users/schemas/user.schema';
 import { CreateStoryDto, StoryCommentDto } from './dto/story.dto';
 import { Story, StoryComment, StoryLove } from './schemas/story.schema';
 
-const STORY_MS = 24 * 60 * 60 * 1000;
+const STORY_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_ITEMS = 10;
 const COMMENT_GAP_MS = 5_000;
 const COMMENTS_SHOWN = 40;
@@ -248,7 +248,7 @@ export class StoriesService {
     return story;
   }
 
-  /** Mongo's timer can lag, so a visit also deletes anything past 24 hours. */
+  /** Mongo's timer can lag, so a visit also deletes anything past 7 days. */
   private async sweep() {
     const gone = await this.stories
       .find({ expiresAt: { $lte: new Date() } })
