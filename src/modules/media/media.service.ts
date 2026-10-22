@@ -84,7 +84,7 @@ export class MediaService {
     return this.sign(userId, 'photo', { folder: CHAT_FOLDER });
   }
 
-  /** Story files live in their own folder and disappear with the story after 24 hours. */
+  /** Story files live in their own folder. They are deleted when the story is removed or expires. */
   signStory(userId: string, kind: MediaKind): UploadSignature {
     const params: Record<string, string> = {
       folder: kind === 'video' ? 'hangaut/stories/videos' : 'hangaut/stories',
@@ -203,20 +203,36 @@ export class MediaService {
   async listStored(type: ResourceType): Promise<StoredMedia[]> {
     const found: StoredMedia[] = [];
     for (const folder of Object.values(FOLDERS)) {
-      let cursor: string | undefined;
-      // 10k per folder per run, the rest waits for the next run
-      for (let page = 0; page < 20; page++) {
-        const result = (await cloudinary.api.resources({
-          type: 'upload',
-          resource_type: type,
-          prefix: `${folder}/`,
-          max_results: 500,
-          ...(cursor && { next_cursor: cursor }),
-        })) as { resources: StoredMedia[]; next_cursor?: string };
-        found.push(...result.resources);
-        cursor = result.next_cursor;
-        if (!cursor) break;
-      }
+      found.push(...(await this.listPrefix(type, folder)));
+    }
+    return found;
+  }
+
+  /** Story photos and videos, not listing files. */
+  listStoryFiles(type: ResourceType): Promise<StoredMedia[]> {
+    const folder =
+      type === 'video' ? 'hangaut/stories/videos' : 'hangaut/stories';
+    return this.listPrefix(type, folder);
+  }
+
+  private async listPrefix(
+    type: ResourceType,
+    folder: string,
+  ): Promise<StoredMedia[]> {
+    const found: StoredMedia[] = [];
+    let cursor: string | undefined;
+    // 10k per folder per run, the rest waits for the next run
+    for (let page = 0; page < 20; page++) {
+      const result = (await cloudinary.api.resources({
+        type: 'upload',
+        resource_type: type,
+        prefix: `${folder}/`,
+        max_results: 500,
+        ...(cursor && { next_cursor: cursor }),
+      })) as { resources: StoredMedia[]; next_cursor?: string };
+      found.push(...result.resources);
+      cursor = result.next_cursor;
+      if (!cursor) break;
     }
     return found;
   }
@@ -236,6 +252,24 @@ export class MediaService {
       });
     } catch (error) {
       this.logger.warn(`Couldn't delete video ${publicId}: ${String(error)}`);
+    }
+  }
+
+  /** Deletes one story photo or video, including the smaller copies Cloudinary made. */
+  async removeStory(
+    publicId: string | undefined,
+    kind: 'photo' | 'video',
+  ): Promise<void> {
+    if (!publicId?.startsWith('hangaut/stories/')) return;
+    try {
+      await cloudinary.uploader.destroy(publicId, {
+        resource_type: kind === 'video' ? 'video' : 'image',
+        invalidate: true,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Couldn't delete story file ${publicId}: ${String(error)}`,
+      );
     }
   }
 }

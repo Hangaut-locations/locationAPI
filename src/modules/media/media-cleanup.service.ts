@@ -11,15 +11,20 @@ import { PartyBooking } from '../bookings/schemas/party-booking.schema';
 import { PropertyBooking } from '../bookings/schemas/property-booking.schema';
 import { Party } from '../parties/schemas/party.schema';
 import { Property } from '../property/schemas/property.schema';
+import { Story } from '../stories/schemas/story.schema';
 import { MediaService } from './media.service';
 
 /** Hosts get a week to save a listing before uploads it doesn't use go. Has to match the note in the site's photo steps. */
 const KEEP_UNSAVED_HOURS = 7 * 24;
 
+/** A story upload that was never saved can sit for an hour. A finished story is deleted right away. */
+const STORY_UPLOAD_GRACE_MS = 60 * 60 * 1000;
+
 /**
  * Deletes listing photos and videos nothing points at anymore, so they don't eat Cloudinary storage:
  * uploads never saved on a listing, parties MongoDB removed after they ended, deleted listings,
  * photos a host took off. Booking cover photos are kept for the guests' booking history.
+ * Story files that no story still points at are deleted the same way.
  * Runs soon after start (Render sleeps a lot) and then on a timer.
  */
 @Injectable()
@@ -37,6 +42,7 @@ export class MediaCleanupService
     private propertyBookingModel: Model<PropertyBooking>,
     @InjectModel(PartyBooking.name)
     private partyBookingModel: Model<PartyBooking>,
+    @InjectModel(Story.name) private storyModel: Model<Story>,
     private mediaService: MediaService,
     private configService: ConfigService,
   ) {}
@@ -59,9 +65,18 @@ export class MediaCleanupService
     if (this.running) return;
     this.running = true;
     try {
+      await this.clearListings();
+      await this.clearStories();
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private async clearListings(): Promise<void> {
+    try {
       const references = await this.references();
       if (!references) {
-        this.logger.warn('No listings found, skipping media cleanup');
+        this.logger.warn('No listings found, skipping listing media cleanup');
         return;
       }
 
@@ -77,9 +92,30 @@ export class MediaCleanupService
         }
       }
     } catch (error) {
-      this.logger.warn(`Media cleanup failed: ${String(error)}`);
-    } finally {
-      this.running = false;
+      this.logger.warn(`Listing media cleanup failed: ${String(error)}`);
+    }
+  }
+
+  /** Story photos and videos whose story row is already gone, same idea as a removed party. */
+  private async clearStories(): Promise<void> {
+    try {
+      const rows = await this.storyModel.find().select('publicId').lean().exec();
+      const referenced = new Set(
+        rows.map((row) => row.publicId).filter((id): id is string => Boolean(id)),
+      );
+      const cutoff = Date.now() - STORY_UPLOAD_GRACE_MS;
+      for (const type of ['image', 'video'] as const) {
+        const unused = (await this.mediaService.listStoryFiles(type))
+          .filter((item) => new Date(item.created_at).getTime() < cutoff)
+          .map((item) => item.public_id)
+          .filter((id) => !referenced.has(id));
+        await this.mediaService.deleteMany(type, unused);
+        if (unused.length) {
+          this.logger.log(`Deleted ${unused.length} story ${type}(s)`);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Story media cleanup failed: ${String(error)}`);
     }
   }
 
