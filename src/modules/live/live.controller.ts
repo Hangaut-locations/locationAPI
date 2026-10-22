@@ -153,3 +153,18 @@ export class LiveController {
     return this.liveService.love(partyId, me(request), dto);
   }
 }
+
+@ApiTags('live')
+@Controller('live')
+export class LiveListController {
+  constructor(private liveService: LiveService) {}
+
+  @Get('parties')
+  @ApiOperation({
+    summary:
+      'Parties whose host currently has the camera on. No login needed',
+  })
+  list() {
+    return this.liveService.listOnAir();
+  }
+}

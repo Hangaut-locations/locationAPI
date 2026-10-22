@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PartiesModule } from '../parties/parties.module';
-import { LiveController } from './live.controller';
+import { LiveController, LiveListController } from './live.controller';
 import { LiveService } from './live.service';
 import {
   LiveComment,
@@ -27,7 +27,7 @@ import {
       { name: LiveLove.name, schema: LiveLoveSchema },
     ]),
   ],
-  controllers: [LiveController],
+  controllers: [LiveController, LiveListController],
   providers: [LiveService],
 })
 export class LiveModule {}
