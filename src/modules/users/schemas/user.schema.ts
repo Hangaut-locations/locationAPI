@@ -35,6 +35,13 @@ export class User extends Document {
   @Prop({ default: '' })
   bio!: string;
 
+  /** Shown instead of the name letters. Empty means keep the letters. */
+  @Prop()
+  photo?: string;
+
+  @Prop()
+  photoId?: string;
+
   /** Missing on accounts made before codes were sent, they confirm on their next login. */
   @Prop()
   emailVerified?: boolean;

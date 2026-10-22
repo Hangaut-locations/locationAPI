@@ -8,12 +8,14 @@ import {
   HttpStatus,
   NotFoundException,
   Patch,
+  Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
+import { ProfilePhotoDto } from './dto/profile-photo.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UsersService } from './users.service';
 
@@ -65,6 +67,32 @@ export class UsersController {
       throw new NotFoundException('User profile not found');
     }
 
+    return this.usersService.toPublicUser(user);
+  }
+
+  @Post('profile/photo-signature')
+  @ApiOperation({
+    summary: 'Sign a profile photo so the browser can send it to Cloudinary',
+  })
+  signPhoto(@Req() request: AuthenticatedRequest) {
+    return this.usersService.signPhoto(request.user._id);
+  }
+
+  @Post('profile/photo')
+  @ApiOperation({
+    summary: 'Save the profile photo. The name letters stay until this is set',
+  })
+  async savePhoto(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: ProfilePhotoDto,
+  ) {
+    const user = await this.usersService.setPhoto(
+      request.user._id,
+      body.publicId,
+    );
+    if (!user) {
+      throw new NotFoundException('User profile not found');
+    }
     return this.usersService.toPublicUser(user);
   }
 
