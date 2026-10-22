@@ -37,7 +37,7 @@ export class StoriesController {
   @Post('upload-signature')
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'))
-  @ApiOperation({ summary: 'Sign a photo or video for a 24 hour story' })
+  @ApiOperation({ summary: 'Sign a photo or video for a 7 day story' })
   sign(
     @Req() request: AuthenticatedRequest,
     @Body() dto: StoryUploadDto,
@@ -58,7 +58,7 @@ export class StoriesController {
 
   @Get()
   @ApiOperation({
-    summary: 'Everyone with a story that is still inside 24 hours',
+    summary: 'Everyone with a story that is still inside 7 days',
   })
   list(@Query('viewerId') viewerId?: string) {
     const safe = viewerId && /^[a-zA-Z0-9_-]{8,40}$/.test(viewerId)
