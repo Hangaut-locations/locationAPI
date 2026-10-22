@@ -152,6 +152,7 @@ export class StoriesService {
     await this.stories.deleteOne({ _id: story._id });
     await this.comments.deleteMany({ storyId: story._id });
     await this.loves.deleteMany({ storyId: story._id });
+    await this.media.removeStory(story.publicId, story.kind);
     return { ok: true };
   }
 
@@ -248,16 +249,19 @@ export class StoriesService {
     return story;
   }
 
-  /** Mongo's timer can lag, so a visit also deletes anything past 7 days. */
+  /** Mongo's timer can lag, so a visit also deletes anything past 7 days, including the Cloudinary file. */
   private async sweep() {
     const gone = await this.stories
       .find({ expiresAt: { $lte: new Date() } })
-      .select('_id')
+      .select('_id publicId kind')
       .lean();
     if (!gone.length) return;
     const ids = gone.map((row) => row._id);
     await this.stories.deleteMany({ _id: { $in: ids } });
     await this.comments.deleteMany({ storyId: { $in: ids } });
     await this.loves.deleteMany({ storyId: { $in: ids } });
+    await Promise.all(
+      gone.map((row) => this.media.removeStory(row.publicId, row.kind)),
+    );
   }
 }
