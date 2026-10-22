@@ -91,6 +91,20 @@ export class LiveService {
     return { live: false };
   }
 
+  /** Published parties whose host has the camera on, for the row under the search line. */
+  async listOnAir() {
+    const sessions = await this.sessions
+      .find({ active: true })
+      .select('partyId')
+      .lean();
+    const parties: LiveCard[] = [];
+    for (const session of sessions) {
+      const card = await this.cardFor(String(session.partyId));
+      if (card) parties.push(card);
+    }
+    return { parties };
+  }
+
   async state(
     partyId: string,
     userId: string | undefined,
@@ -250,6 +264,33 @@ export class LiveService {
     return { loves, loved: !existing };
   }
 
+  private async cardFor(partyId: string): Promise<LiveCard | null> {
+    let party: Awaited<ReturnType<PartiesService['findById']>>;
+    try {
+      party = await this.partiesService.findById(partyId);
+    } catch {
+      return null;
+    }
+    if (!party) return null;
+    const fields = fieldsOf(party);
+    if (fields.status !== StatusType.PUBLISHED || !partyWindow(fields).on) {
+      return null;
+    }
+    const images = party.images;
+    const hostName =
+      `${party.host?.firstName ?? ''} ${party.host?.lastName ?? ''}`.trim();
+    const firstImage =
+      Array.isArray(images) && typeof images[0] === 'string' ? images[0] : '';
+    return {
+      id: partyId,
+      title: typeof party.title === 'string' ? party.title : '',
+      image: firstImage,
+      location: typeof party.location === 'string' ? party.location : '',
+      ownerId: fields.ownerId == null ? '' : String(fields.ownerId),
+      hostName,
+    };
+  }
+
   private async open(partyId: string, userId?: string, key?: string) {
     const party = await this.partiesService.findById(partyId, userId, key);
     if (!party) {
@@ -334,6 +375,15 @@ export class LiveService {
     return { seq: saved.seq };
   }
 }
+
+type LiveCard = {
+  id: string;
+  title: string;
+  image: string;
+  location: string;
+  ownerId: string;
+  hostName: string;
+};
 
 const toSignal = (signal: {
   viewerId: string;
