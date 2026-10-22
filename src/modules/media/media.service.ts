@@ -96,6 +96,65 @@ export class MediaService {
     return this.sign(userId, kind, params);
   }
 
+  /** Profile photos live in their own folder, so listing cleanup never touches them. */
+  signProfilePhoto(userId: string): UploadSignature {
+    return this.sign(userId, 'photo', { folder: 'hangaut/profiles' });
+  }
+
+  /** Confirms a profile photo was uploaded by this user. */
+  async findProfilePhoto(
+    publicId: string,
+    userId: string,
+  ): Promise<{ publicId: string; url: string }> {
+    let image: { public_id?: string; tags?: string[] } | undefined;
+    try {
+      image = (await cloudinary.api.resource(publicId, {
+        resource_type: 'image',
+      })) as { public_id?: string; tags?: string[] };
+    } catch {
+      image = undefined;
+    }
+    if (
+      !image?.public_id?.startsWith('hangaut/profiles/') ||
+      !image.tags?.includes(ownerTag(userId))
+    ) {
+      throw new BadRequestException(
+        "We couldn't find that photo, upload it again",
+      );
+    }
+    return {
+      publicId: image.public_id,
+      url: this.profilePhotoUrl(image.public_id),
+    };
+  }
+
+  /** Square face crop of a profile photo. */
+  profilePhotoUrl(publicId: string): string {
+    return cloudinary.url(publicId, {
+      resource_type: 'image',
+      secure: true,
+      transformation: [
+        { width: 400, height: 400, crop: 'fill', gravity: 'face', quality: 'auto' },
+      ],
+      format: 'jpg',
+    });
+  }
+
+  /** Deletes one profile photo. Listing and story files are left alone. */
+  async removeProfilePhoto(publicId?: string): Promise<void> {
+    if (!publicId?.startsWith('hangaut/profiles/')) return;
+    try {
+      await cloudinary.uploader.destroy(publicId, {
+        resource_type: 'image',
+        invalidate: true,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Couldn't delete profile photo ${publicId}: ${String(error)}`,
+      );
+    }
+  }
+
   /** Confirms a story photo was uploaded by this user. */
   async findStoryPhoto(
     publicId: string,
