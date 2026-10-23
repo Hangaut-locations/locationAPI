@@ -99,6 +99,22 @@ export class ReviewsController {
     );
   }
 
+  @Patch('comments/:commentId')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Edit my own review' })
+  editComment(
+    @Req() request: AuthenticatedRequest,
+    @Param('commentId') commentId: string,
+    @Body() { comment, key }: CreateCommentDto,
+  ) {
+    return this.reviewsService.editComment(
+      commentId,
+      request.user._id,
+      comment,
+      key,
+    );
+  }
+
   @Delete('comments/:commentId')
   @UseGuards(AuthGuard('jwt'))
   @ApiOperation({ summary: 'Delete my own comment' })
