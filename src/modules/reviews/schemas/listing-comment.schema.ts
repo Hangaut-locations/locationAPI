@@ -37,6 +37,9 @@ export class ListingComment extends Document {
   @Prop({ required: true, trim: true, maxlength: COMMENT_MAX_LENGTH })
   comment!: string;
 
+  @Prop()
+  editedAt?: Date;
+
   // host <-> reviewer back and forth, oldest first
   @Prop({ type: [ReviewReplySchema], default: [] })
   replies!: Types.DocumentArray<ReviewReply>;

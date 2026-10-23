@@ -189,6 +189,7 @@ export class ReviewsService {
           _id: comment._id,
           comment: comment.comment,
           createdAt: comment.createdAt,
+          editedAt: comment.editedAt ?? null,
           user: comment.userId,
           mine: sameId(comment.userId?._id, userId),
           replies: toThread(comment.replies ?? [], ownerId, userId),
@@ -252,6 +253,7 @@ export class ReviewsService {
       _id: saved._id,
       comment: saved.comment,
       createdAt: saved.createdAt,
+      editedAt: null,
       user: saved.userId,
       mine: true,
       replies: [],
@@ -339,6 +341,39 @@ export class ReviewsService {
     this.threadEntry(comment, replyId, userId).deleteOne();
     await comment.save();
     return this.threadOf(comment._id, hostId, userId);
+  }
+
+  async editComment(
+    commentId: string,
+    userId: string,
+    text: string,
+    key?: string,
+  ) {
+    const { comment, hostId } = await this.thread(commentId, userId, key);
+    if (!sameId(comment.userId, userId)) {
+      throw new ForbiddenException('You can only change your own review');
+    }
+    comment.comment = text;
+    comment.editedAt = new Date();
+    await comment.save();
+
+    const fresh = await this.commentModel
+      .findById(comment._id)
+      .populate<{ userId: ReviewPerson | null }>('userId', PERSON_FIELDS)
+      .populate<{ replies: ThreadEntry[] }>('replies.userId', PERSON_FIELDS)
+      .lean()
+      .exec();
+    if (!fresh?.userId) throw new NotFoundException('Review not found');
+    return {
+      _id: fresh._id,
+      comment: fresh.comment,
+      createdAt: fresh.createdAt,
+      editedAt: fresh.editedAt ?? null,
+      user: fresh.userId,
+      mine: true,
+      replies: toThread(fresh.replies ?? [], hostId, userId),
+      canReply: true,
+    };
   }
 
   async deleteComment(commentId: string, userId: string) {
