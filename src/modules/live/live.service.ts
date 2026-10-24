@@ -23,6 +23,7 @@ import { LiveViewer } from './schemas/live.schema';
 
 const MAX_VIEWERS = 40;
 const STALE_MS = 15_000;
+const HOST_STALE_MS = 12_000;
 const COMMENT_GAP_MS = 5_000;
 
 const sameId = (left?: string, right?: unknown) => {
@@ -67,6 +68,7 @@ export class LiveService {
         hostId: new Types.ObjectId(userId),
         active: true,
         startedAt: new Date(),
+        hostSeen: new Date(),
         signalSeq: 0,
       },
       { upsert: true, new: true },
@@ -81,13 +83,7 @@ export class LiveService {
     if (!sameId(userId, party.ownerId)) {
       throw new ForbiddenException('Only the host can stop the live video');
     }
-    const partyObjectId = new Types.ObjectId(partyId);
-    await this.sessions.updateOne(
-      { partyId: partyObjectId },
-      { active: false },
-    );
-    await this.signals.deleteMany({ partyId: partyObjectId });
-    await this.viewers.deleteMany({ partyId: partyObjectId });
+    await this.endSession(partyId);
     return { live: false };
   }
 
@@ -95,10 +91,14 @@ export class LiveService {
   async listOnAir() {
     const sessions = await this.sessions
       .find({ active: true })
-      .select('partyId')
+      .select('partyId hostSeen')
       .lean();
     const parties: LiveCard[] = [];
     for (const session of sessions) {
+      if (!this.hostFresh(session.hostSeen)) {
+        await this.endSession(String(session.partyId));
+        continue;
+      }
       const card = await this.cardFor(String(session.partyId));
       if (card) parties.push(card);
     }
@@ -117,7 +117,8 @@ export class LiveService {
     const session = await this.sessions
       .findOne({ partyId: partyKey(partyId) })
       .lean();
-    const live = !!session?.active && window.on;
+    const current = await this.settle(session);
+    const live = !!current && window.on;
     const hostWatching = sameId(userId, party.ownerId);
     if (live && viewerId && !hostWatching) {
       await this.touchViewer(partyId, viewerId);
@@ -169,6 +170,12 @@ export class LiveService {
     if (!sameId(userId, party.ownerId)) {
       throw new ForbiddenException('Only the host can run the live video');
     }
+    const session = await this.sessions.findOne({ partyId, active: true }).lean();
+    if (!(await this.settle(session))) return { viewers: [], signals: [] };
+    await this.sessions.updateOne(
+      { partyId, active: true },
+      { hostSeen: new Date() },
+    );
     const since = new Date(Date.now() - STALE_MS);
     const [viewers, signals] = await Promise.all([
       this.viewers.find({ partyId, lastSeen: { $gte: since } }).lean(),
@@ -319,9 +326,33 @@ export class LiveService {
     const session = await this.sessions
       .findOne({ partyId, active: true })
       .lean();
-    if (!session) {
+    if (!(await this.settle(session))) {
       throw new BadRequestException("The host isn't live");
     }
+  }
+
+  private hostFresh(seen?: Date) {
+    if (!seen) return false;
+    return Date.now() - new Date(seen).getTime() <= HOST_STALE_MS;
+  }
+
+  private async settle<T extends { partyId?: unknown; active?: boolean; hostSeen?: Date }>(
+    session: T | null,
+  ) {
+    if (!session?.active) return null;
+    if (this.hostFresh(session.hostSeen)) return session;
+    await this.endSession(String(session.partyId));
+    return null;
+  }
+
+  private async endSession(partyId: string) {
+    const partyObjectId = partyKey(partyId);
+    await this.sessions.updateOne(
+      { partyId: partyObjectId },
+      { active: false },
+    );
+    await this.signals.deleteMany({ partyId: partyObjectId });
+    await this.viewers.deleteMany({ partyId: partyObjectId });
   }
 
   private async touchViewer(partyId: string, viewerId: string) {

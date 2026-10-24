@@ -20,6 +20,9 @@ export class LiveSession extends Document {
   @Prop()
   startedAt?: Date;
 
+  @Prop()
+  hostSeen?: Date;
+
   @Prop({ default: 0 })
   signalSeq!: number;
 }
