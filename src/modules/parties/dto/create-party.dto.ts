@@ -58,6 +58,18 @@ export class TicketOptionDto {
   @Min(1)
   @Max(10000)
   available!: number;
+
+  @ApiPropertyOptional({
+    example: 'A seat at a round table with drinks included.',
+    maxLength: 280,
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @MaxLength(280)
+  details?: string;
 }
 
 export class CreatePartyDto {
