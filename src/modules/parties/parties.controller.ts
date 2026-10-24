@@ -53,6 +53,7 @@ export class PartiesController {
         start_date: { type: 'string', format: 'date', example: '2026-10-20' },
         end_date: { type: 'string', format: 'date', example: '2026-10-20' },
         start_time: { type: 'string', example: '18:30' },
+        end_time: { type: 'string', example: '23:00' },
         title: { type: 'string' },
         description: { type: 'string' },
         location: { type: 'string' },

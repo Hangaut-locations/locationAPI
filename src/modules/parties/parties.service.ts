@@ -158,6 +158,29 @@ export class PartiesService implements OnModuleInit {
     }
   }
 
+  private assertEndTime(
+    startDate?: Date | string,
+    endDate?: Date | string,
+    startTime?: string,
+    endTime?: string | null,
+  ) {
+    if (!endTime || !startTime || !startDate) return;
+    const startDay = new Date(startDate).toISOString().slice(0, 10);
+    const endDay = endDate
+      ? new Date(endDate).toISOString().slice(0, 10)
+      : startDay;
+    if (endDay > startDay || endTime > startTime) return;
+    throw new BadRequestException({
+      message: 'Validation failed',
+      data: [
+        {
+          field: 'end_time',
+          messages: ['End time has to be after the start time'],
+        },
+      ],
+    });
+  }
+
   /** How many of each extra ticket are still for sale. */
   private async choicesLeft(
     partyId: Types.ObjectId,
@@ -219,10 +242,17 @@ export class PartiesService implements OnModuleInit {
     images: Express.Multer.File[] = [],
   ): Promise<Party> {
     this.assertDateOrder(partyData.start_date, partyData.end_date);
+    this.assertEndTime(
+      partyData.start_date,
+      partyData.end_date,
+      partyData.start_time,
+      partyData.end_time,
+    );
     this.assertTicketOptions(
       partyData.guest_capacity,
       partyData.ticket_options,
     );
+    if (partyData.end_time === '') delete partyData.end_time;
 
     const { video, ...fields } = partyData;
     const listingVideo = await this.mediaService.nextVideo(
@@ -416,6 +446,12 @@ export class PartiesService implements OnModuleInit {
       partyData.start_date ?? party.start_date,
       partyData.end_date ?? party.end_date,
     );
+    this.assertEndTime(
+      partyData.start_date ?? party.start_date,
+      partyData.end_date ?? party.end_date,
+      partyData.start_time ?? party.start_time,
+      partyData.end_time === '' ? partyData.end_time : (partyData.end_time ?? party.end_time),
+    );
     this.assertTicketOptions(
       partyData.guest_capacity ?? party.guest_capacity,
       partyData.ticket_options ?? party.ticket_options,
@@ -439,6 +475,9 @@ export class PartiesService implements OnModuleInit {
     }
     if (partyData.end_date) {
       updatedPartyData.expires_at = partyExpiry(partyData.end_date);
+    }
+    if (partyData.end_time === '') {
+      updatedPartyData.end_time = null;
     }
 
     if (partyData.images || images.length > 0) {

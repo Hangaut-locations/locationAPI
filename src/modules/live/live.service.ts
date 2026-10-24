@@ -41,6 +41,7 @@ type PartyFields = {
   start_date?: Date;
   end_date?: Date;
   start_time?: string;
+  end_time?: string | null;
 };
 
 const partyKey = (partyId: string) => new Types.ObjectId(partyId);
@@ -428,16 +429,19 @@ const toSignal = (signal: {
   seq: signal.seq,
 });
 
-/** Party is on from its start time until the end of the last day, Nigeria time. */
+/** Party is on from its start time until the end time, or the end of the last day. */
 const partyWindow = (party: PartyFields) => {
   if (!party.start_date) return { started: false, ended: false, on: false };
   const startsAt = nigeriaDateTime(
     new Date(party.start_date).toISOString(),
     party.start_time || '00:00',
   );
-  const endsAt = party.end_date
-    ? partyExpiry(party.end_date)
-    : new Date(startsAt.getTime() + 86_400_000);
+  const endDay = party.end_date ?? party.start_date;
+  const endsAt = party.end_time
+    ? nigeriaDateTime(new Date(endDay).toISOString(), party.end_time)
+    : party.end_date
+      ? partyExpiry(party.end_date)
+      : new Date(startsAt.getTime() + 86_400_000);
   const now = Date.now();
   const started = now >= startsAt.getTime();
   const ended = now >= endsAt.getTime();
