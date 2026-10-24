@@ -10,6 +10,7 @@ import {
 } from '../bookings/schemas/property-booking.schema';
 import { Party, PartySchema } from '../parties/schemas/party.schema';
 import { Property, PropertySchema } from '../property/schemas/property.schema';
+import { Message, MessageSchema } from '../chat/schemas/message.schema';
 import { Story, StorySchema } from '../stories/schemas/story.schema';
 import { MediaCleanupService } from './media-cleanup.service';
 import { MediaController } from './media.controller';
@@ -23,6 +24,7 @@ import { MediaService } from './media.service';
       { name: PropertyBooking.name, schema: PropertyBookingSchema },
       { name: PartyBooking.name, schema: PartyBookingSchema },
       { name: Story.name, schema: StorySchema },
+      { name: Message.name, schema: MessageSchema },
     ]),
   ],
   controllers: [MediaController],

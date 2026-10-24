@@ -11,6 +11,7 @@ import { PartyBooking } from '../bookings/schemas/party-booking.schema';
 import { PropertyBooking } from '../bookings/schemas/property-booking.schema';
 import { Party } from '../parties/schemas/party.schema';
 import { Property } from '../property/schemas/property.schema';
+import { Message } from '../chat/schemas/message.schema';
 import { Story } from '../stories/schemas/story.schema';
 import { MediaService } from './media.service';
 
@@ -20,11 +21,15 @@ const KEEP_UNSAVED_HOURS = 7 * 24;
 /** A story upload that was never saved can sit for an hour. A finished story is deleted right away. */
 const STORY_UPLOAD_GRACE_MS = 60 * 60 * 1000;
 
+/** A chat photo that was never sent can sit for an hour. A deleted message drops its file right away. */
+const CHAT_UPLOAD_GRACE_MS = 60 * 60 * 1000;
+
 /**
  * Deletes listing photos and videos nothing points at anymore, so they don't eat Cloudinary storage:
  * uploads never saved on a listing, parties MongoDB removed after they ended, deleted listings,
  * photos a host took off. Booking cover photos are kept for the guests' booking history.
  * Story files that no story still points at are deleted the same way.
+ * Chat photos no message still shows are deleted the same way.
  * Runs soon after start (Render sleeps a lot) and then on a timer.
  */
 @Injectable()
@@ -43,6 +48,7 @@ export class MediaCleanupService
     @InjectModel(PartyBooking.name)
     private partyBookingModel: Model<PartyBooking>,
     @InjectModel(Story.name) private storyModel: Model<Story>,
+    @InjectModel(Message.name) private messageModel: Model<Message>,
     private mediaService: MediaService,
     private configService: ConfigService,
   ) {}
@@ -67,6 +73,7 @@ export class MediaCleanupService
     try {
       await this.clearListings();
       await this.clearStories();
+      await this.clearChats();
     } finally {
       this.running = false;
     }
@@ -116,6 +123,33 @@ export class MediaCleanupService
       }
     } catch (error) {
       this.logger.warn(`Story media cleanup failed: ${String(error)}`);
+    }
+  }
+
+  /** Chat photos whose message was deleted, or that were uploaded and never sent. */
+  private async clearChats(): Promise<void> {
+    try {
+      const rows = await this.messageModel
+        .find({ photo: { $nin: [null, ''] } })
+        .select('photo')
+        .lean()
+        .exec();
+      const referenced = new Set(
+        rows.flatMap(
+          (row) => row.photo?.match(/hangaut\/chat\/[\w-]+/g) ?? [],
+        ),
+      );
+      const cutoff = Date.now() - CHAT_UPLOAD_GRACE_MS;
+      const unused = (await this.mediaService.listChatPhotos())
+        .filter((item) => new Date(item.created_at).getTime() < cutoff)
+        .map((item) => item.public_id)
+        .filter((id) => !referenced.has(id));
+      await this.mediaService.deleteMany('image', unused);
+      if (unused.length) {
+        this.logger.log(`Deleted ${unused.length} chat photo(s)`);
+      }
+    } catch (error) {
+      this.logger.warn(`Chat photo cleanup failed: ${String(error)}`);
     }
   }
 
