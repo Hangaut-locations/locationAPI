@@ -3,7 +3,7 @@ import { User } from './schemas/user.schema';
 
 // Only what guests may see about a host; never the password.
 export const PUBLIC_HOST_FIELDS =
-  'firstName lastName email phone city state country bio createdAt';
+  'firstName lastName email phone city state country bio createdAt photo';
 
 export interface PublicHost {
   _id: Types.ObjectId;
@@ -16,6 +16,7 @@ export interface PublicHost {
   country?: string;
   bio?: string;
   createdAt?: Date;
+  photo?: string;
 }
 
 export const findPublicHost = (
