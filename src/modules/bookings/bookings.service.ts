@@ -253,15 +253,15 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
   /** Sends in the background, the booking already went through. */
   private notify(
     item: AnyBooking,
-    build: (guest: Person, host: Person) => Mail[],
+    build: (guest: Person, host: Person) => Mail[] | Promise<Mail[]>,
   ) {
     void Promise.all([
       this.findPerson(item.booking.guestId),
       this.findPerson(item.booking.hostId),
     ])
-      .then(([guest, host]) =>
+      .then(async ([guest, host]) =>
         guest && host
-          ? this.mailService.sendAll(build(guest, host))
+          ? this.mailService.sendAll(await build(guest, host))
           : undefined,
       )
       .catch((error) => this.logger.error('Booking emails failed', error));

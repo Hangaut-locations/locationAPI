@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import { buildMail, MailContent } from '../mail/layout';
 import { Mail } from '../mail/mail.service';
 import { PartyBooking } from './schemas/party-booking.schema';
@@ -206,14 +207,28 @@ export const requestMails = (
   ].map(buildMail);
 };
 
+const doorQr = async (code: string, id: string) => {
+  const png = await QRCode.toBuffer(code, {
+    type: 'png',
+    margin: 1,
+    width: 280,
+    errorCorrectionLevel: 'M',
+  });
+  return {
+    id,
+    filename: `${id}.png`,
+    content: png.toString('base64'),
+  };
+};
+
 /** Everyone in the group gets their codes. The host hears about instant bookings. */
-export const confirmedMails = (
+export const confirmedMails = async (
   item: AnyBooking,
   guest: Person,
   host: Person,
   siteUrl: string,
   acceptedByHost: boolean,
-): Mail[] => {
+): Promise<Mail[]> => {
   const booker = fullName(guest);
   const link = links(item, siteUrl);
   const { title } = item.booking;
@@ -222,10 +237,15 @@ export const confirmedMails = (
       ? `You're going to ${title}!`
       : `You're booked at ${title}!`;
 
-  const guestMails = [...ticketsByEmail(item)].map(
-    ([email, codes]): MailContent => {
+  const guestMails = await Promise.all(
+    [...ticketsByEmail(item)].map(async ([email, codes], groupIndex) => {
       const isBooker = email === guest.email.toLowerCase();
-      return {
+      const images = await Promise.all(
+        codes.map((ticket, index) =>
+          doorQr(ticket.code, `door-${groupIndex}-${index}`),
+        ),
+      );
+      const content: MailContent = {
         to: email,
         subject: acceptedByHost
           ? `Booking confirmed: ${title}`
@@ -239,7 +259,11 @@ export const confirmedMails = (
           codes.length > 1
             ? 'Here are the codes for your group. Each code gets one person in, one time, so send each friend their own.'
             : 'Show this code to the host when you arrive. It works one time, so keep it to yourself.',
-        codes,
+        codes: codes.map((ticket, index) => ({
+          ...ticket,
+          qrId: images[index]?.id,
+        })),
+        images,
         rows: [
           ...listingRows(item),
           ...(isBooker ? [] : [{ label: 'Booked by', value: booker }]),
@@ -252,10 +276,11 @@ export const confirmedMails = (
           : undefined,
         link: isBooker ? link.trips : link.listing,
       };
-    },
+      return buildMail(content);
+    }),
   );
 
-  if (acceptedByHost) return guestMails.map(buildMail);
+  if (acceptedByHost) return guestMails;
 
   const hostMail: MailContent = {
     to: host.email,
@@ -275,7 +300,7 @@ export const confirmedMails = (
     ],
     link: link.guestList,
   };
-  return [...guestMails, hostMail].map(buildMail);
+  return [...guestMails, buildMail(hostMail)];
 };
 
 const declineText: Record<DeclineReason, (host: Person) => string> = {

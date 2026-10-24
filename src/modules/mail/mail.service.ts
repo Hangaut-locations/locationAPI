@@ -1,11 +1,18 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+export interface MailAttachment {
+  filename: string;
+  content: string;
+  content_id: string;
+}
+
 export interface Mail {
   to: string;
   subject: string;
   html: string;
   text: string;
+  attachments?: MailAttachment[];
 }
 
 const RESEND_URL = 'https://api.resend.com/emails';
@@ -47,6 +54,9 @@ export class MailService implements OnModuleInit {
           subject: mail.subject,
           html: mail.html,
           text: mail.text,
+          ...(mail.attachments?.length
+            ? { attachments: mail.attachments }
+            : {}),
         }),
       });
       if (!response.ok) {
