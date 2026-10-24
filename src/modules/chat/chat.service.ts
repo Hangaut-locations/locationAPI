@@ -595,6 +595,7 @@ export class ChatService {
       )
       .lean<StoredMessage>()
       .exec();
+    await this.mediaService.removeChatPhoto(existing.photo);
     await this.syncLastMessage(existing.conversationId);
     return this.toMessage(message!, userId);
   }

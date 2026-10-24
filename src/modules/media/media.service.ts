@@ -79,7 +79,7 @@ export class MediaService {
     return this.sign(userId, kind, params);
   }
 
-  /** Chat photos live outside the listing folders, so the listing cleanup never touches them. */
+  /** Chat photos live in their own folder. A deleted one is removed from Cloudinary. */
   signChatPhoto(userId: string): UploadSignature {
     return this.sign(userId, 'photo', { folder: CHAT_FOLDER });
   }
@@ -267,6 +267,11 @@ export class MediaService {
     return found;
   }
 
+  /** Chat photos, not listing or story files. */
+  listChatPhotos(): Promise<StoredMedia[]> {
+    return this.listPrefix('image', CHAT_FOLDER);
+  }
+
   /** Story photos and videos, not listing files. */
   listStoryFiles(type: ResourceType): Promise<StoredMedia[]> {
     const folder =
@@ -311,6 +316,22 @@ export class MediaService {
       });
     } catch (error) {
       this.logger.warn(`Couldn't delete video ${publicId}: ${String(error)}`);
+    }
+  }
+
+  /** Deletes one chat photo. The stored value may be the public id or the delivery URL. */
+  async removeChatPhoto(photo?: string): Promise<void> {
+    const publicId = photo?.match(/hangaut\/chat\/[\w-]+/)?.[0];
+    if (!publicId) return;
+    try {
+      await cloudinary.uploader.destroy(publicId, {
+        resource_type: 'image',
+        invalidate: true,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Couldn't delete chat photo ${publicId}: ${String(error)}`,
+      );
     }
   }
 
