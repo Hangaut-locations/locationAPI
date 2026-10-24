@@ -11,6 +11,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  ValidateIf,
   Matches,
   Max,
   MaxLength,
@@ -193,6 +194,17 @@ export class CreatePartyDto {
     message: 'Start time must look like 18:30',
   })
   start_time?: string;
+
+  @ApiPropertyOptional({
+    example: '23:00',
+    description: 'Stopping time, 24-hour "HH:mm" (Nigeria time)',
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== '' && value !== null)
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, {
+    message: 'End time must look like 23:00',
+  })
+  end_time?: string | null;
 
   @ApiProperty({ example: 2, minimum: 0 })
   @RequiredUnlessDraft()
