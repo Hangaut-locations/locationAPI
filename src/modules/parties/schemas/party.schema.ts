@@ -54,6 +54,10 @@ export class TicketOption {
   /** How many of this ticket the host is selling. */
   @Prop({ required: true, min: 1 })
   available!: number;
+
+  /** What this ticket includes. Blank when the host did not write one. */
+  @Prop({ required: false, trim: true, maxlength: 280 })
+  details?: string;
 }
 
 export const TicketOptionSchema = SchemaFactory.createForClass(TicketOption);

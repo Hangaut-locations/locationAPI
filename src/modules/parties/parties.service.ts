@@ -184,7 +184,7 @@ export class PartiesService implements OnModuleInit {
   /** How many of each extra ticket are still for sale. */
   private async choicesLeft(
     partyId: Types.ObjectId,
-    options: { name: string; price: number; available: number }[],
+    options: { name: string; price: number; available: number; details?: string }[],
   ) {
     if (!options.length) return [];
     const rows = await this.partyBookingModel.aggregate<{
@@ -210,6 +210,7 @@ export class PartiesService implements OnModuleInit {
       name: option.name,
       price: option.price,
       available: option.available,
+      details: option.details || undefined,
       left: Math.max(
         0,
         option.available - (sold.get(option.name.toLowerCase()) ?? 0),
