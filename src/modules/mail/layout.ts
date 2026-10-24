@@ -1,4 +1,10 @@
-import { Mail } from './mail.service';
+import { Mail, MailAttachment } from './mail.service';
+
+export interface MailImage {
+  id: string;
+  filename: string;
+  content: string;
+}
 
 export interface MailContent {
   to: string;
@@ -6,7 +12,8 @@ export interface MailContent {
   heading: string;
   intro: string;
   rows?: { label: string; value: string }[];
-  codes?: { name: string; code: string }[];
+  codes?: { name: string; code: string; qrId?: string }[];
+  images?: MailImage[];
   outro?: string;
   link?: { label: string; url: string };
 }
@@ -31,11 +38,18 @@ export const buildMail = (content: MailContent): Mail => {
     )
     .join('');
   const codes = (content.codes ?? [])
-    .map(
-      ({ name, code }) =>
-        `<div style="margin:0 0 10px;padding:14px 16px;border:1px dashed #a855f7;border-radius:12px;background:#faf5ff"><div style="font-size:13px;color:#6b7280">${escape(name)}</div><div style="font-family:monospace;font-size:24px;font-weight:bold;letter-spacing:3px;color:#581c87">${escape(code)}</div></div>`,
-    )
+    .map(({ name, code, qrId }) => {
+      const qr = qrId
+        ? `<img src="cid:${escape(qrId)}" width="140" height="140" alt="QR code for ${escape(name)}" style="display:block;margin:0 0 8px;background:#ffffff"/>`
+        : '';
+      return `<div style="margin:0 0 10px;padding:14px 16px;border:1px dashed #a855f7;border-radius:12px;background:#faf5ff">${qr}<div style="font-size:13px;color:#6b7280">${escape(name)}</div><div style="font-family:monospace;font-size:24px;font-weight:bold;letter-spacing:3px;color:#581c87">${escape(code)}</div></div>`;
+    })
     .join('');
+  const attachments: MailAttachment[] = (content.images ?? []).map((image) => ({
+    filename: image.filename,
+    content: image.content,
+    content_id: image.id,
+  }));
 
   const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">
 <div style="max-width:520px;margin:0 auto;padding:28px;background:#ffffff;border-radius:16px">
@@ -59,5 +73,11 @@ ${content.link ? `<a href="${escape(content.link.url)}" style="display:inline-bl
     ...(content.link ? ['', `${content.link.label}: ${content.link.url}`] : []),
   ].join('\n');
 
-  return { to: content.to, subject: content.subject, html, text };
+  return {
+    to: content.to,
+    subject: content.subject,
+    html,
+    text,
+    ...(attachments.length ? { attachments } : {}),
+  };
 };
