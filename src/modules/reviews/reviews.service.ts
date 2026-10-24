@@ -17,7 +17,7 @@ import { ListingLike } from './schemas/listing-like.schema';
 import { ListingType } from './schemas/listing-type';
 
 /** What other people see about whoever liked or commented. */
-const PERSON_FIELDS = 'firstName lastName city state country';
+const PERSON_FIELDS = 'firstName lastName city state country photo';
 
 export interface ReviewPerson {
   _id: Types.ObjectId;
@@ -26,6 +26,7 @@ export interface ReviewPerson {
   city?: string;
   state?: string;
   country?: string;
+  photo?: string;
 }
 
 interface OpenListing {

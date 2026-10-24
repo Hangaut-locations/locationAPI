@@ -80,7 +80,7 @@ export class StoriesService {
     const [users, comments, loveCounts, mine] = await Promise.all([
       this.users
         .find({ _id: { $in: userIds } })
-        .select('firstName lastName')
+        .select('firstName lastName photo')
         .lean(),
       this.comments
         .find({ storyId: { $in: ids } })
@@ -98,7 +98,11 @@ export class StoriesService {
     const names = new Map(
       users.map((user) => [
         String(user._id),
-        { firstName: user.firstName, lastName: user.lastName },
+        {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          photo: user.photo,
+        },
       ]),
     );
     const byStory = new Map<string, StoryRow[]>();
@@ -121,6 +125,7 @@ export class StoriesService {
         userId,
         firstName: names.get(userId)?.firstName ?? '',
         lastName: names.get(userId)?.lastName ?? '',
+        photo: names.get(userId)?.photo || undefined,
         items: items.map((item) => ({
           id: String(item._id),
           kind: item.kind,

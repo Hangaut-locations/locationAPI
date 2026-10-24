@@ -35,7 +35,7 @@ import {
 import { Message, MessageKind, SharedLocation } from './schemas/message.schema';
 
 /** What the other person sees about you in chat. */
-const PERSON_FIELDS = 'firstName lastName city state country';
+const PERSON_FIELDS = 'firstName lastName city state country photo';
 const PAGE_SIZE = 40;
 // opened the chat this recently = probably still in it, so no email
 const ACTIVE_MS = 5 * 60_000;
@@ -49,6 +49,7 @@ export interface ChatPerson {
   city?: string;
   state?: string;
   country?: string;
+  photo?: string;
 }
 
 interface StoredConversation {
