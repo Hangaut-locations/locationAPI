@@ -139,7 +139,7 @@ export class Party extends Document {
   start_time?: string;
 
   /** "HH:mm", 24-hour, Nigeria time. Empty means the party runs until the end of the end date. */
-  @Prop({ required: false, trim: true })
+  @Prop({ type: String, required: false, trim: true })
   end_time?: string | null;
 
   /** End of the party's end date. MongoDB deletes the party once this passes. */
