@@ -78,13 +78,22 @@ const nigeriaDay = (date: Date) =>
   });
 
 const homeWhen = (booking: PropertyBooking) => {
-  if (!booking.days) {
-    return `${nigeriaTime(booking.start_at)}, ${plural(booking.hours, 'hour')}`;
-  }
   const first = nigeriaDay(booking.start_at);
-  if (booking.days === 1) return `${first}, all day`;
   const last = nigeriaDay(new Date(new Date(booking.end_at).getTime() - 1));
-  return `${first} to ${last} (${plural(booking.days, 'day')})`;
+  const stay =
+    booking.days && booking.days > 1
+      ? `${first} to ${last} (${plural(booking.days, 'day')})`
+      : undefined;
+  if (
+    booking.charge_type === 'hour' ||
+    booking.charge_type === 'person' ||
+    !booking.days
+  ) {
+    const visit = `${nigeriaTime(booking.start_at)}, ${plural(booking.hours, 'hour')}`;
+    return stay ? `${stay}, ${visit}` : visit;
+  }
+  if (booking.days === 1) return `${first}, all day`;
+  return stay ?? `${first}, all day`;
 };
 
 const when = (item: AnyBooking) =>

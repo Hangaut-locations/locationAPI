@@ -537,7 +537,7 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     return withCodesIfConfirmed(booking.toObject());
   }
 
-  /** Places charged per day take whole days, the rest take a start time and hours. */
+  /** Places charged per day take whole nights. The rest take a start time and hours, and a longer stay holds those nights too. */
   private bookingTimes(
     chargeType: PropertyChargeType,
     bookingData: CreatePropertyBookingDto,
@@ -568,11 +568,22 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     if (startAt <= new Date()) {
       throw fieldError('date', 'Pick a time in the future');
     }
+    const paidEnd = new Date(startAt.getTime() + bookingData.hours * HOUR_MS);
+    const nights = bookingData.days ?? 1;
+    let endAt = paidEnd;
+    let dayCount: number | undefined;
+    if (nights > 1) {
+      const stayEnd = new Date(
+        nigeriaDateTime(bookingData.date, '00:00').getTime() + nights * DAY_MS,
+      );
+      if (stayEnd > endAt) endAt = stayEnd;
+      dayCount = nights;
+    }
     return {
       startAt,
-      endAt: new Date(startAt.getTime() + bookingData.hours * HOUR_MS),
+      endAt,
       hours: bookingData.hours,
-      dayCount: undefined,
+      dayCount,
     };
   }
 
