@@ -50,7 +50,7 @@ export class CreatePropertyBookingDto {
   @ApiPropertyOptional({
     example: 2,
     description:
-      'Needed when the place charges per day. Holds whole days starting from date',
+      'Nights from the check-in date to the morning of check-out. Required when the place charges per day. A longer stay on any place holds those nights, including days the host crossed out',
   })
   @IsOptional()
   @Type(() => Number)
