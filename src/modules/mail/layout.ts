@@ -1,4 +1,5 @@
 import { Mail, MailAttachment } from './mail.service';
+import { MAIL_LOGO_PNG_BASE64, MAIL_X_PNG_BASE64 } from './mail-assets';
 
 export interface MailImage {
   id: string;
@@ -17,6 +18,8 @@ export interface MailContent {
   outro?: string;
   link?: { label: string; url: string };
 }
+
+const X_PROFILE_URL = 'https://x.com/hangauthere';
 
 const escape = (value: string) =>
   value.replace(
@@ -45,24 +48,43 @@ export const buildMail = (content: MailContent): Mail => {
       return `<div style="margin:0 0 10px;padding:14px 16px;border:1px dashed #a855f7;border-radius:12px;background:#faf5ff">${qr}<div style="font-size:13px;color:#6b7280">${escape(name)}</div><div style="font-family:monospace;font-size:24px;font-weight:bold;letter-spacing:3px;color:#581c87">${escape(code)}</div></div>`;
     })
     .join('');
-  const attachments: MailAttachment[] = (content.images ?? []).map((image) => ({
-    filename: image.filename,
-    content: image.content,
-    content_id: image.id,
-  }));
+  const attachments: MailAttachment[] = [
+    {
+      filename: 'hangaut-logo.png',
+      content: MAIL_LOGO_PNG_BASE64,
+      content_id: 'hangaut-logo',
+    },
+    {
+      filename: 'x-logo.png',
+      content: MAIL_X_PNG_BASE64,
+      content_id: 'hangaut-x',
+    },
+    ...(content.images ?? []).map((image) => ({
+      filename: image.filename,
+      content: image.content,
+      content_id: image.id,
+    })),
+  ];
 
   const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif">
 <div style="max-width:520px;margin:0 auto;padding:28px;background:#ffffff;border-radius:16px">
-<div style="font-size:20px;font-weight:bold;color:#581c87;margin-bottom:20px">Hangaut</div>
+<div style="margin:0 0 20px"><img src="cid:hangaut-logo" alt="Hangaut" height="40" style="display:block;height:40px;width:auto;border:0"/></div>
 <h1 style="margin:0 0 12px;font-size:22px;color:#111827">${escape(content.heading)}</h1>
 ${paragraph(content.intro)}
 ${codes}
 ${rows ? `<table style="margin:8px 0 16px;border-collapse:collapse">${rows}</table>` : ''}
 ${content.outro ? paragraph(content.outro) : ''}
 ${content.link ? `<a href="${escape(content.link.url)}" style="display:inline-block;padding:12px 22px;background:#a855f7;color:#ffffff;border-radius:999px;text-decoration:none;font-weight:bold;font-size:14px">${escape(content.link.label)}</a>` : ''}
+<div style="margin:28px 0 0;padding-top:20px;border-top:1px solid #e5e7eb;text-align:center">
+<a href="${X_PROFILE_URL}" style="display:inline-block;text-decoration:none" target="_blank" rel="noopener noreferrer">
+<img src="cid:hangaut-x" width="28" height="28" alt="X" style="display:block;border:0;margin:0 auto"/>
+</a>
+</div>
 </div></body></html>`;
 
   const text = [
+    'Hangaut',
+    '',
     content.heading,
     '',
     content.intro,
@@ -71,6 +93,8 @@ ${content.link ? `<a href="${escape(content.link.url)}" style="display:inline-bl
     ...(content.rows ?? []).map(({ label, value }) => `${label}: ${value}`),
     ...(content.outro ? ['', content.outro] : []),
     ...(content.link ? ['', `${content.link.label}: ${content.link.url}`] : []),
+    '',
+    `X: ${X_PROFILE_URL}`,
   ].join('\n');
 
   return {
@@ -78,6 +102,6 @@ ${content.link ? `<a href="${escape(content.link.url)}" style="display:inline-bl
     subject: content.subject,
     html,
     text,
-    ...(attachments.length ? { attachments } : {}),
+    attachments,
   };
 };
