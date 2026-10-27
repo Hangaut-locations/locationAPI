@@ -195,12 +195,72 @@ export class PartiesService implements OnModuleInit {
         $match: {
           partyId,
           status: BookingStatus.CONFIRMED,
-          ticket_name: { $type: 'string', $ne: '' },
+          $or: [
+            { ticket_name: { $type: 'string', $ne: '' } },
+            {
+              ticket_names: {
+                $elemMatch: { $type: 'string', $ne: '' },
+              },
+            },
+          ],
         },
       },
       {
+        $project: {
+          guests: 1,
+          names: {
+            $cond: [
+              {
+                $gt: [
+                  {
+                    $size: {
+                      $filter: {
+                        input: { $ifNull: ['$ticket_names', []] },
+                        as: 'name',
+                        cond: {
+                          $and: [
+                            { $eq: [{ $type: '$$name' }, 'string'] },
+                            { $ne: ['$$name', ''] },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  0,
+                ],
+              },
+              {
+                $filter: {
+                  input: { $ifNull: ['$ticket_names', []] },
+                  as: 'name',
+                  cond: {
+                    $and: [
+                      { $eq: [{ $type: '$$name' }, 'string'] },
+                      { $ne: ['$$name', ''] },
+                    ],
+                  },
+                },
+              },
+              {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: [{ $type: '$ticket_name' }, 'string'] },
+                      { $ne: ['$ticket_name', ''] },
+                    ],
+                  },
+                  ['$ticket_name'],
+                  [],
+                ],
+              },
+            ],
+          },
+        },
+      },
+      { $unwind: '$names' },
+      {
         $group: {
-          _id: { $toLower: '$ticket_name' },
+          _id: { $toLower: '$names' },
           guests: { $sum: '$guests' },
         },
       },

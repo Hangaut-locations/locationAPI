@@ -75,7 +75,8 @@ export class CreatePartyBookingDto {
 
   @ApiPropertyOptional({
     example: 'VIP',
-    description: 'Name of an extra ticket. Leave it off to pay the main price.',
+    description:
+      'Name of one extra ticket. Prefer ticket_names when the guest picks more than one. Leave both off to pay the main price.',
   })
   @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
@@ -84,6 +85,24 @@ export class CreatePartyBookingDto {
   @IsString()
   @MaxLength(40)
   ticket_name?: string;
+
+  @ApiPropertyOptional({
+    example: ['VIP', 'Round table'],
+    description:
+      'Up to three tickets in one booking. An empty string means the main Regular price. The guest pays the sum.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  @Transform(({ value }: { value: unknown }) => {
+    if (!Array.isArray(value)) return value;
+    return value.map((item) =>
+      typeof item === 'string' ? item.trim() : item,
+    );
+  })
+  ticket_names?: string[];
 
   @ApiPropertyOptional({
     description:

@@ -71,9 +71,13 @@ export class PartyBooking extends Document {
   @Prop({ min: 0 })
   price?: number;
 
-  /** Which extra ticket they bought. Blank means the party's main price. */
+  /** Which extra ticket they bought. Blank means the party's main price. Kept for older bookings. */
   @Prop({ required: false, trim: true })
   ticket_name?: string;
+
+  /** Tickets in this booking, up to three. An empty string means the main Regular price. */
+  @Prop({ type: [String], required: false, default: undefined })
+  ticket_names?: string[];
 
   createdAt!: Date;
   updatedAt!: Date;
