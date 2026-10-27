@@ -380,27 +380,67 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     }
     let price = party.price ?? 0;
     let ticketName: string | undefined;
-    const picked = bookingData.ticket_name;
-    if (!bookingData.without_ticket && picked) {
-      const option = (party.ticket_options ?? []).find(
-        (item) => item.name.toLowerCase() === picked.toLowerCase(),
-      );
-      if (!option) {
-        throw fieldError('ticket_name', 'That ticket is not on this party');
+    let ticketNames: string[] | undefined;
+    if (!bookingData.without_ticket) {
+      const pickedNames = (
+        bookingData.ticket_names?.length
+          ? bookingData.ticket_names
+          : bookingData.ticket_name
+            ? [bookingData.ticket_name]
+            : []
+      ).slice(0, 3);
+      if (pickedNames.length) {
+        const sold = await this.soldByTicket(party._id);
+        const options = party.ticket_options ?? [];
+        let unit = 0;
+        const resolved: string[] = [];
+        const seen = new Set<string>();
+        for (const picked of pickedNames) {
+          if (picked === '') {
+            if (seen.has('')) {
+              throw fieldError(
+                'ticket_names',
+                'The main ticket can only be picked once',
+              );
+            }
+            seen.add('');
+            unit += party.price ?? 0;
+            resolved.push('');
+            continue;
+          }
+          const key = picked.toLowerCase();
+          if (seen.has(key)) {
+            throw fieldError(
+              'ticket_names',
+              'Each ticket can only be picked once',
+            );
+          }
+          seen.add(key);
+          const option = options.find(
+            (item) => item.name.toLowerCase() === key,
+          );
+          if (!option) {
+            throw fieldError(
+              pickedNames.length > 1 ? 'ticket_names' : 'ticket_name',
+              'That ticket is not on this party',
+            );
+          }
+          const taken = sold.get(option.name.toLowerCase()) ?? 0;
+          const left = option.available - taken;
+          if (bookingData.guests > left) {
+            throw new ConflictException(
+              left > 0
+                ? `Only ${spotsText(left)} of ${option.name} left`
+                : `${option.name} is sold out`,
+            );
+          }
+          unit += option.price;
+          resolved.push(option.name);
+        }
+        price = unit;
+        ticketNames = resolved;
+        ticketName = resolved.find((name) => name !== '') || undefined;
       }
-      const sold =
-        (await this.soldByTicket(party._id)).get(option.name.toLowerCase()) ??
-        0;
-      const left = option.available - sold;
-      if (bookingData.guests > left) {
-        throw new ConflictException(
-          left > 0
-            ? `Only ${spotsText(left)} of ${option.name} left`
-            : `${option.name} is sold out`,
-        );
-      }
-      price = option.price;
-      ticketName = option.name;
     }
     if (bookingData.without_ticket) price = 0;
     const booking = await new this.partyBookingModel({
@@ -429,6 +469,7 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
       charge_type: party.charge_type,
       price,
       ticket_name: ticketName,
+      ticket_names: ticketNames,
     }).save();
 
     this.notifyBooked({ kind: 'party', booking }, isPrivate);
@@ -818,6 +859,16 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /** Ticket names on a booking, including older ones that only stored ticket_name. */
+  private bookingTicketNames(booking: {
+    ticket_name?: string | null;
+    ticket_names?: string[] | null;
+  }) {
+    if (booking.ticket_names?.length) return booking.ticket_names;
+    if (booking.ticket_name) return [booking.ticket_name];
+    return [];
+  }
+
   /** How many confirmed spots each extra ticket has used. */
   private async soldByTicket(partyId: Types.ObjectId) {
     const rows = await this.partyBookingModel.aggregate<{
@@ -828,12 +879,72 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
         $match: {
           partyId,
           status: BookingStatus.CONFIRMED,
-          ticket_name: { $type: 'string', $ne: '' },
+          $or: [
+            { ticket_name: { $type: 'string', $ne: '' } },
+            {
+              ticket_names: {
+                $elemMatch: { $type: 'string', $ne: '' },
+              },
+            },
+          ],
         },
       },
       {
+        $project: {
+          guests: 1,
+          names: {
+            $cond: [
+              {
+                $gt: [
+                  {
+                    $size: {
+                      $filter: {
+                        input: { $ifNull: ['$ticket_names', []] },
+                        as: 'name',
+                        cond: {
+                          $and: [
+                            { $eq: [{ $type: '$$name' }, 'string'] },
+                            { $ne: ['$$name', ''] },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  0,
+                ],
+              },
+              {
+                $filter: {
+                  input: { $ifNull: ['$ticket_names', []] },
+                  as: 'name',
+                  cond: {
+                    $and: [
+                      { $eq: [{ $type: '$$name' }, 'string'] },
+                      { $ne: ['$$name', ''] },
+                    ],
+                  },
+                },
+              },
+              {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: [{ $type: '$ticket_name' }, 'string'] },
+                      { $ne: ['$ticket_name', ''] },
+                    ],
+                  },
+                  ['$ticket_name'],
+                  [],
+                ],
+              },
+            ],
+          },
+        },
+      },
+      { $unwind: '$names' },
+      {
         $group: {
-          _id: { $toLower: '$ticket_name' },
+          _id: { $toLower: '$names' },
           guests: { $sum: '$guests' },
         },
       },
@@ -851,27 +962,28 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
           : "The party is full, so this request can't be accepted",
       );
     }
-    if (!booking.ticket_name) return;
+    const names = this.bookingTicketNames(booking).filter((name) => name);
+    if (!names.length) return;
     const party = await this.partyModel
       .findById(booking.partyId)
       .select('ticket_options')
       .lean()
       .exec();
-    const option = (party?.ticket_options ?? []).find(
-      (item) => item.name.toLowerCase() === booking.ticket_name?.toLowerCase(),
-    );
-    if (!option) return;
-    const sold =
-      (await this.soldByTicket(booking.partyId)).get(
-        option.name.toLowerCase(),
-      ) ?? 0;
-    const left = option.available - sold;
-    if (booking.guests <= left) return;
-    throw new ConflictException(
-      left > 0
-        ? `Only ${spotsText(left)} of ${option.name} left, not enough for this group of ${booking.guests}`
-        : `${option.name} is sold out, so this request can't be accepted`,
-    );
+    const sold = await this.soldByTicket(booking.partyId);
+    for (const name of names) {
+      const option = (party?.ticket_options ?? []).find(
+        (item) => item.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (!option) continue;
+      const left =
+        option.available - (sold.get(option.name.toLowerCase()) ?? 0);
+      if (booking.guests <= left) continue;
+      throw new ConflictException(
+        left > 0
+          ? `Only ${spotsText(left)} of ${option.name} left, not enough for this group of ${booking.guests}`
+          : `${option.name} is sold out, so this request can't be accepted`,
+      );
+    }
   }
 
   private async declineWhatNoLongerFits(partyId: Types.ObjectId) {
@@ -905,22 +1017,32 @@ export class BookingsService implements OnModuleInit, OnModuleDestroy {
       .find({
         partyId,
         status: BookingStatus.PENDING,
-        ticket_name: { $type: 'string', $ne: '' },
+        $or: [
+          { ticket_name: { $type: 'string', $ne: '' } },
+          {
+            ticket_names: {
+              $elemMatch: { $type: 'string', $ne: '' },
+            },
+          },
+        ],
       })
-      .select('_id guests ticket_name')
+      .select('_id guests ticket_name ticket_names')
       .lean()
       .exec();
     for (const request of named) {
       if (alreadyDeclined.has(String(request._id))) continue;
-      const option = options.find(
-        (item) =>
-          item.name.toLowerCase() === request.ticket_name?.toLowerCase(),
-      );
-      if (!option) continue;
-      const left =
-        option.available - (sold.get(option.name.toLowerCase()) ?? 0);
-      if (request.guests > left) {
-        await this.declineRequest('party', request._id, 'full');
+      const names = this.bookingTicketNames(request).filter((name) => name);
+      for (const name of names) {
+        const option = options.find(
+          (item) => item.name.toLowerCase() === name.toLowerCase(),
+        );
+        if (!option) continue;
+        const left =
+          option.available - (sold.get(option.name.toLowerCase()) ?? 0);
+        if (request.guests > left) {
+          await this.declineRequest('party', request._id, 'full');
+          break;
+        }
       }
     }
   }
