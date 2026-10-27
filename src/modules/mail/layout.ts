@@ -45,7 +45,7 @@ const SOCIALS = [
     filename: 'x.png',
     content: MAIL_X_PNG_BASE64,
     alt: 'X',
-    url: 'https://x.com/getpedxo',
+    url: 'https://x.com/hangauthere',
   },
   {
     id: 'mail-linkedin',
